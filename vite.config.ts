@@ -5,6 +5,7 @@ import glsl from "vite-plugin-glsl";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './', // 确保在 GitHub Pages 等环境下资源路径正确
   plugins: [vue(), glsl({
     compress: true,
     watch: true,
