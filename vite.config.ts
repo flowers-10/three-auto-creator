@@ -21,6 +21,7 @@ export default defineConfig({
       "@shaders": path.resolve(__dirname, "src/shaders"),
       "@utils": path.resolve(__dirname, "src/utils"),
       "@components": path.resolve(__dirname, "src/components"),
+      "three-auto": "/Users/channel1/Desktop/Project/three-auto/packages/core/src/index.ts",
     },
   },
 })

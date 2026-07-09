@@ -35,7 +35,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import ColorPickerPanel from './ColorPickerPanel.vue';
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   modelValue: string;
   alpha?: number;
 }>(), {

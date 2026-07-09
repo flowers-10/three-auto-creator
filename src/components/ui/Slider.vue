@@ -13,7 +13,7 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
   modelValue: number;
   min?: number;
   max?: number;

@@ -99,7 +99,7 @@ import { useAssetStore } from '../../store/useAssetStore';
 import AssetDialog from '../ui/AssetDialog.vue';
 import IconButton from '../ui/IconButton.vue';
 
-const props = defineProps<{
+defineProps<{
   sceneObjects: any[];
   selectedId: string;
 }>();

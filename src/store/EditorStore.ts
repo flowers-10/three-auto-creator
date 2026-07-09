@@ -1,8 +1,40 @@
 import { defineStore } from 'pinia';
-import { reactive, ref, watch } from 'vue';
-import ZheJiangCity from '@assets/json/ZheJiangCity.json';
+import { reactive, ref, shallowRef, watch } from 'vue';
 
 const STORAGE_KEY = 'three-auto-editor-config';
+
+type TransformAxis = 'x' | 'y' | 'z';
+type TransformSection = 'position' | 'scale' | 'rotation';
+type RuntimeMaterialSummary = {
+  id: string;
+  name: string;
+  color?: string;
+};
+
+const createTransformState = () => ({
+  position: { x: 0, y: 0, z: 0 },
+  scale: { x: 1, y: 1, z: 1 },
+  rotation: { x: 0, y: 0, z: 0 },
+});
+
+const createDefaultCameraControls = () => ({
+  enable: false,
+  enableDamping: true,
+  enablePan: true,
+  design: true,
+});
+
+const createDefaultSeries = () => ([
+  {
+    id: 1,
+    name: '测试圆球',
+    type: 'sphere',
+    show: true,
+    radius: 1.4,
+    position: { x: 0, y: 0, z: 0 },
+    color: '#7c5cff',
+  },
+]);
 
 export const useEditorStore = defineStore('editor', () => {
   const isPreview = ref(false);
@@ -15,6 +47,12 @@ export const useEditorStore = defineStore('editor', () => {
   const lightColor = ref('#D3D3D3');
   const lightAlpha = ref(1.0);
   const shadowType = ref('low-faster');
+  const selectedSceneObject = shallowRef<any | null>(null);
+  const selectedSceneObjectName = ref('');
+  const selectedSceneObjectType = ref('');
+  const selectedSceneObjectVisible = ref(true);
+  const selectedSceneObjectTransform = reactive(createTransformState());
+  const selectedSceneObjectMaterials = ref<RuntimeMaterialSummary[]>([]);
   
   const expandedSections = reactive({
     light: true,
@@ -41,11 +79,7 @@ export const useEditorStore = defineStore('editor', () => {
       far: 1000,
       position: { x: 0, y: 0, z: 20 },
       lookAt: true,
-      controls: {
-        show: true,
-        enableDamping: true,
-        enablePan: true,
-      },
+      controls: createDefaultCameraControls(),
     },
     size: {
       type: "parent",
@@ -66,16 +100,7 @@ export const useEditorStore = defineStore('editor', () => {
       near: 1,
       far: 1000
     },
-    series: [
-      {
-        shadow: true,
-        name: "轮廓地图",
-        id: 0,
-        type: "map",
-        json: ZheJiangCity,
-        show: true,
-      },
-    ],
+    series: createDefaultSeries(),
   });
 
   const loadConfig = () => {
@@ -84,6 +109,17 @@ export const useEditorStore = defineStore('editor', () => {
       try {
         const data = JSON.parse(saved);
         Object.assign(config, data.config);
+        config.camera = {
+          ...config.camera,
+          controls: {
+            ...createDefaultCameraControls(),
+            ...(data.config?.camera?.controls || {}),
+            enable: data.config?.camera?.controls?.enable
+              ?? data.config?.camera?.controls?.show
+              ?? false,
+            design: true,
+          },
+        };
         effectsEnabled.value = data.effectsEnabled ?? false;
         activeEffect.value = data.activeEffect ?? 'moebius';
         effectIntensity.value = data.effectIntensity ?? 1.0;
@@ -94,14 +130,23 @@ export const useEditorStore = defineStore('editor', () => {
         shadowType.value = data.shadowType ?? 'low-faster';
         Object.assign(expandedSections, data.expandedSections);
         
-        config.series.forEach(s => {
-          if (s.type === 'map' && !s.json) {
-            s.json = ZheJiangCity;
-          }
-        });
+        if (!Array.isArray(config.series) || !config.series.length || config.series.every(s => s.type === 'map')) {
+          config.series = createDefaultSeries() as any;
+        }
       } catch (e) {
         console.error('Failed to load persisted data:', e);
       }
+    }
+
+    config.camera.controls = {
+      ...createDefaultCameraControls(),
+      ...(config.camera.controls || {}),
+      enable: config.camera.controls?.enable ?? (config.camera.controls as any)?.show ?? false,
+      design: true,
+    };
+
+    if (!Array.isArray(config.series) || !config.series.length || config.series.every(s => s.type === 'map')) {
+      config.series = createDefaultSeries() as any;
     }
   };
 
@@ -119,6 +164,132 @@ export const useEditorStore = defineStore('editor', () => {
       expandedSections: JSON.parse(JSON.stringify(expandedSections))
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  };
+
+  const roundValue = (value: number) => Number(value.toFixed(2));
+
+  const resetRuntimeSelection = () => {
+    selectedId.value = 'scene';
+    selectedSceneObject.value = null;
+    selectedSceneObjectName.value = '';
+    selectedSceneObjectType.value = '';
+    selectedSceneObjectVisible.value = true;
+    Object.assign(selectedSceneObjectTransform, createTransformState());
+    selectedSceneObjectMaterials.value = [];
+  };
+
+  const readMaterials = (object: any | null): RuntimeMaterialSummary[] => {
+    if (!object?.traverse) {
+      return [];
+    }
+
+    const materialMap = new Map<string, RuntimeMaterialSummary>();
+
+    object.traverse((child: any) => {
+      const materialValue = child?.material;
+      const materials = Array.isArray(materialValue) ? materialValue : [materialValue];
+
+      materials.filter(Boolean).forEach((material: any, index: number) => {
+        const id = material.uuid ?? `${child.uuid || child.name || 'material'}-${index}`;
+        if (materialMap.has(id)) {
+          return;
+        }
+
+        let color: string | undefined;
+        if (material?.color?.isColor && typeof material.color.getHexString === 'function') {
+          color = `#${material.color.getHexString()}`;
+        }
+
+        materialMap.set(id, {
+          id,
+          name: material.name || child.name || material.type || `Material ${materialMap.size + 1}`,
+          color,
+        });
+      });
+    });
+
+    return Array.from(materialMap.values());
+  };
+
+  const syncSelectedSceneObject = (object: any | null) => {
+    if (!object) {
+      resetRuntimeSelection();
+      return;
+    }
+
+    const seriesId = object?.userData?.seriesId ?? object?.userData?.id;
+    const matchedSeries = config.series.find((item: any) => String(item.id) === String(seriesId));
+
+    if (seriesId !== undefined && seriesId !== null) {
+      selectedId.value = String(seriesId);
+    }
+
+    selectedSceneObject.value = object;
+    selectedSceneObjectName.value = matchedSeries?.name || object.name || object.type || 'Unnamed Object';
+    selectedSceneObjectType.value = object.type || 'Object3D';
+    selectedSceneObjectVisible.value = object.visible !== false;
+    selectedSceneObjectTransform.position.x = roundValue(object.position?.x ?? 0);
+    selectedSceneObjectTransform.position.y = roundValue(object.position?.y ?? 0);
+    selectedSceneObjectTransform.position.z = roundValue(object.position?.z ?? 0);
+    selectedSceneObjectTransform.scale.x = roundValue(object.scale?.x ?? 1);
+    selectedSceneObjectTransform.scale.y = roundValue(object.scale?.y ?? 1);
+    selectedSceneObjectTransform.scale.z = roundValue(object.scale?.z ?? 1);
+    selectedSceneObjectTransform.rotation.x = roundValue(object.rotation?.x ?? 0);
+    selectedSceneObjectTransform.rotation.y = roundValue(object.rotation?.y ?? 0);
+    selectedSceneObjectTransform.rotation.z = roundValue(object.rotation?.z ?? 0);
+    selectedSceneObjectMaterials.value = readMaterials(object);
+  };
+
+  const renameSelectedSceneObject = (name: string) => {
+    if (!selectedSceneObject.value) {
+      return;
+    }
+
+    const seriesId = selectedSceneObject.value?.userData?.seriesId ?? selectedSceneObject.value?.userData?.id ?? selectedId.value;
+    const matchedSeries = config.series.find((item: any) => String(item.id) === String(seriesId));
+
+    selectedSceneObject.value.name = name;
+    selectedSceneObjectName.value = name;
+
+    if (matchedSeries) {
+      matchedSeries.name = name;
+    }
+  };
+
+  const setSelectedSceneObjectVisible = (visible: boolean) => {
+    if (!selectedSceneObject.value) {
+      return;
+    }
+
+    selectedSceneObject.value.visible = visible;
+    selectedSceneObjectVisible.value = visible;
+  };
+
+  const updateSelectedSceneObjectTransform = (
+    section: TransformSection,
+    axis: TransformAxis,
+    rawValue: number | string,
+  ) => {
+    if (!selectedSceneObject.value) {
+      return;
+    }
+
+    const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+    if (Number.isNaN(value)) {
+      return;
+    }
+
+    const object = selectedSceneObject.value;
+
+    if (section === 'rotation') {
+      object.rotation[axis] = value;
+    } else {
+      object[section][axis] = value;
+    }
+
+    object.updateMatrix?.();
+    object.updateMatrixWorld?.(true);
+    syncSelectedSceneObject(object);
   };
 
   // 监听并保存
@@ -139,7 +310,17 @@ export const useEditorStore = defineStore('editor', () => {
     shadowType,
     expandedSections,
     config,
+    selectedSceneObject,
+    selectedSceneObjectName,
+    selectedSceneObjectType,
+    selectedSceneObjectVisible,
+    selectedSceneObjectTransform,
+    selectedSceneObjectMaterials,
     loadConfig,
-    saveConfig
+    saveConfig,
+    syncSelectedSceneObject,
+    renameSelectedSceneObject,
+    setSelectedSceneObjectVisible,
+    updateSelectedSceneObjectTransform,
   };
 });

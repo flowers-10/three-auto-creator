@@ -4,6 +4,7 @@
     <EditorCanvas 
       ref="canvasRef"
       :config="config" 
+      :selected-id="selectedId"
       :show-controls="!isPreview"
       :camera-type="config.camera.type"
       :active-effect="activeEffect"
