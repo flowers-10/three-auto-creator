@@ -47,25 +47,6 @@ npm run dev
 npm run build
 ```
 
-## 🌐 开启 GitHub 预览 (GitHub Pages)
-
-要将本项目部署到 GitHub Pages 并开启预览，请参考以下步骤：
-
-1. **配置 base 路径**: 
-   已在 `vite.config.ts` 中设置 `base: './'`，这确保了构建后的资源路径在 GitHub Pages 下能被正确访问。
-2. **构建项目**:
-   运行 `npm run build` 生成 `dist` 文件夹。
-3. **部署方式 (推荐使用 GitHub Actions)**:
-   - 在 GitHub 项目设置中，进入 **Settings > Pages**。
-   - 在 **Build and deployment > Source** 中选择 **GitHub Actions**。
-   - GitHub 会提供一个静态站点的模板，或者你可以直接使用现成的 Vite 部署 Action。
-4. **手动部署**:
-   你也可以使用 `gh-pages` 工具进行快速部署：
-   ```bash
-   npm install -g gh-pages
-   gh-pages -d dist
-   ```
-
 ## 📄 开源协议
 
 本项目遵循 MIT 协议。
