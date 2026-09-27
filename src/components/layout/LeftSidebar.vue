@@ -13,7 +13,7 @@
         <div 
           class="tree-item scene-root" 
           :class="{ active: selectedId === 'scene' }"
-          @click="$emit('select', 'scene')"
+          @click="emit('select', 'scene', false)"
         >
           <span class="tree-icon">🏠</span>
           <span class="tree-label">Scene</span>
@@ -21,17 +21,19 @@
         </div>
         <div class="tree-children">
           <div 
-            v-for="item in sceneObjects" 
+            v-for="item in visibleObjects"
             :key="item.id" 
             class="tree-node"
           >
             <div 
               class="tree-item"
-              :class="{ active: selectedId === String(item.id) }"
-              @click="$emit('select', item.id)"
+              :class="{ active: selectedIds.includes(String(item.id)) }"
+              :style="{ paddingLeft: `${8 + item.depth * 16}px` }"
+              @click="emit('select', item.id, $event.ctrlKey || $event.metaKey || $event.shiftKey)"
+              @contextmenu.prevent="emit('object-context', $event, item.id)"
             >
               <span class="tree-line-guide"></span>
-              <span class="node-toggle" v-if="item.children && item.children.length">▼</span>
+              <button v-if="item.type === 'group'" class="node-toggle" type="button" @click.stop="toggleGroup(item.id)">{{ collapsedGroups.has(String(item.id)) ? '▶' : '▼' }}</button>
               <span class="tree-icon">{{ getObjectIcon(item.type) }}</span>
               <span class="tree-label">{{ item.name }}</span>
             </div>
@@ -94,17 +96,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useAssetStore } from '../../store/useAssetStore';
 import AssetDialog from '../ui/AssetDialog.vue';
 import IconButton from '../ui/IconButton.vue';
 
-defineProps<{
+const props = defineProps<{
   sceneObjects: any[];
   selectedId: string;
+  selectedIds: string[];
 }>();
 
-defineEmits(['select']);
+const emit = defineEmits(['select', 'object-context']);
+const collapsedGroups = ref(new Set<string>());
+const toggleGroup = (id: string | number) => {
+  const next = new Set(collapsedGroups.value);
+  if (next.has(String(id))) next.delete(String(id));
+  else next.add(String(id));
+  collapsedGroups.value = next;
+};
+const visibleObjects = computed(() => props.sceneObjects.filter(item =>
+  !(item.ancestorIds || []).some((id: string) => collapsedGroups.value.has(id)),
+));
 
 const assetStore = useAssetStore();
 const activeTab = ref('objects');
@@ -161,6 +174,7 @@ const getObjectIcon = (type: string) => {
     case 'light': return '💡';
     case 'cube': return '📦';
     case 'sphere': return '⚪';
+    case 'group': return '▣';
     case 'text': return 'T';
     case 'tooltip': return '💬';
     default: return '🔹';
@@ -308,6 +322,10 @@ const getObjectIcon = (type: string) => {
   font-size: 8px;
   margin-right: 2px;
   color: #999;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }
 
 .active .node-toggle {

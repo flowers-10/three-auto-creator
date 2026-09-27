@@ -1,7 +1,7 @@
 <template>
   <div class="canvas-container">
     <div class="canvas-wrapper">
-      <canvas id="_scene"></canvas>
+      <canvas id="_scene" @click="onCanvasClick" @contextmenu.prevent="onCanvasContextMenu"></canvas>
     </div>
     <!-- 底部视图切换 - 属于画布功能部分 -->
     <div class="viewport-controls" v-if="showControls">
@@ -33,7 +33,7 @@ const props = defineProps<{
   effectsEnabled: boolean;
 }>();
 
-const emit = defineEmits(['update-camera', 'tick']);
+const emit = defineEmits(['update-camera', 'tick', 'object-context']);
 const editorStore = useEditorStore();
 
 let instance: any = null;
@@ -56,25 +56,28 @@ const findSceneObjectForSelection = (targetId: string) => {
     return null;
   }
 
-  if (selectedSeries.name) {
-    const matchedByName = instance.scene.getObjectByName(selectedSeries.name);
-    if (matchedByName) {
-      return matchedByName;
-    }
-  }
-
   let matchedObject: any = null;
   instance.scene.traverse((object: any) => {
     if (matchedObject) {
       return;
     }
 
-    if (object?.userData?.id === selectedSeries.id || object?.userData?.seriesId === selectedSeries.id) {
+    if (String(object?.userData?.id) === targetId || String(object?.userData?.seriesId) === targetId) {
       matchedObject = object;
     }
   });
 
-  return matchedObject;
+  return matchedObject || (selectedSeries.name ? instance.scene.getObjectByName(selectedSeries.name) : null);
+};
+
+const tagSeriesObjects = (seriesList: any[]) => {
+  seriesList.filter(item => item.type !== 'group').forEach(item => {
+    const object = findSceneObjectForSelection(String(item.id));
+    if (object) {
+      object.userData.seriesId = item.id;
+      object.userData.designRoot = true;
+    }
+  });
 };
 
 const syncDesignSelectionFromSidebar = () => {
@@ -139,9 +142,87 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
   });
 };
 
+const buildGroups = (seriesList: any[]) => {
+  if (!instance) return;
+  const groups = seriesList.filter(item => item.type === 'group');
+  groups.forEach(item => {
+    const group = new THREE.Group();
+    group.name = item.name || 'Group';
+    group.userData.id = item.id;
+    group.userData.seriesId = item.id;
+    group.userData.designRoot = true;
+    group.visible = item.show !== false;
+    group.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
+    instance.scene.add(group);
+  });
+  seriesList.filter(item => item.parentId != null).forEach(item => {
+    const parent = findSceneObjectForSelection(String(item.parentId));
+    const child = findSceneObjectForSelection(String(item.id));
+    if (parent && child && parent !== child && parent instanceof THREE.Group) {
+      parent.attach(child);
+      child.userData.designRoot = false;
+    }
+  });
+};
+
+const findEditorObject = (object: THREE.Object3D | null): THREE.Object3D | null => {
+  let current = object;
+  while (current && current !== instance?.scene) {
+    const seriesId = current.userData?.seriesId;
+    if (seriesId != null && props.config.series.some((item: any) => String(item.id) === String(seriesId))) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+};
+
+const excludeSceneHelpersFromPicking = () => {
+  instance.scene.traverse((object: THREE.Object3D) => {
+    if (object instanceof THREE.Mesh && !findEditorObject(object)) {
+      object.userData.designSelectable = false;
+    }
+  });
+};
+
+const pickEditorObject = (event: MouseEvent): THREE.Object3D | null => {
+  const canvas = event.currentTarget as HTMLCanvasElement;
+  const rect = canvas.getBoundingClientRect();
+  const pointer = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(pointer, instance._camera);
+  const hits = raycaster.intersectObjects(instance.scene.children, true);
+  for (const hit of hits) {
+    if (hit.object.userData.__designInternal) continue;
+    const selected = findEditorObject(hit.object);
+    if (selected) return selected;
+  }
+  return null;
+};
+
+const onCanvasClick = (event: MouseEvent) => {
+  if (!instance?.design || editorStore.isPreview) return;
+  const current = findEditorObject(instance.design.selectedObject);
+  const selected = current || pickEditorObject(event);
+  instance.design.select(selected);
+  editorStore.syncSelectedSceneObject(selected);
+};
+
+const onCanvasContextMenu = (event: MouseEvent) => {
+  if (!instance?.design || editorStore.isPreview) return;
+  const selected = pickEditorObject(event);
+  if (selected) {
+    instance.design.select(selected);
+    editorStore.syncSelectedSceneObject(selected);
+    emit('object-context', event, selected.userData.seriesId);
+  }
+};
+
 const initThree = () => {
   if (instance) {
-    editorStore.syncSelectedSceneObject(null);
     instance.dispose?.();
   }
 
@@ -177,9 +258,21 @@ const initThree = () => {
   try {
     instance = new AUTO.ThreeAuto(undefined, finalConfig);
     addPrimitiveObjects(originalSeries);
+    tagSeriesObjects(originalSeries);
+    buildGroups(originalSeries);
+    excludeSceneHelpersFromPicking();
     syncDesignSelectionFromSidebar();
     instance.time.on("tick", (data: any) => {
-      const selectedObject = instance?.design?.selectedObject ?? null;
+      let selectedObject = instance?.design?.selectedObject ?? null;
+      const editableObject = selectedObject ? findEditorObject(selectedObject) : null;
+      if (selectedObject && !editableObject) {
+        instance.design.select(null);
+        editorStore.syncSelectedSceneObject(null);
+        selectedObject = null;
+      } else if (editableObject && editableObject !== selectedObject) {
+        instance.design.select(editableObject);
+        selectedObject = editableObject;
+      }
       const currentKey = selectedObject ? `${selectedObject.uuid}:${selectedObject.userData?.seriesId ?? "none"}` : "scene";
       if (currentKey !== lastDebugSelectedKey) {
         lastDebugSelectedKey = currentKey;
@@ -190,7 +283,12 @@ const initThree = () => {
           selectedSeriesId: selectedObject?.userData?.seriesId ?? null,
         });
       }
-      editorStore.syncSelectedSceneObject(selectedObject);
+      const selectedSeriesId = selectedObject?.userData?.seriesId;
+      if (selectedObject && (props.selectedId === 'scene' || String(selectedSeriesId) === props.selectedId)) {
+        editorStore.syncSelectedSceneObject(selectedObject);
+      } else if (!selectedObject && (props.selectedId === 'scene' || findSceneObjectForSelection(props.selectedId))) {
+        editorStore.syncSelectedSceneObject(null);
+      }
       emit('tick', data);
     });
   } catch (e) {

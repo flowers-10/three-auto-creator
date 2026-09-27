@@ -39,6 +39,7 @@ const createDefaultSeries = () => ([
 export const useEditorStore = defineStore('editor', () => {
   const isPreview = ref(false);
   const selectedId = ref('scene');
+  const selectedIds = ref<string[]>([]);
   const effectsEnabled = ref(false);
   const activeEffect = ref('moebius');
   const effectIntensity = ref(1.0);
@@ -130,7 +131,7 @@ export const useEditorStore = defineStore('editor', () => {
         shadowType.value = data.shadowType ?? 'low-faster';
         Object.assign(expandedSections, data.expandedSections);
         
-        if (!Array.isArray(config.series) || !config.series.length || config.series.every(s => s.type === 'map')) {
+        if (!Array.isArray(config.series)) {
           config.series = createDefaultSeries() as any;
         }
       } catch (e) {
@@ -145,7 +146,7 @@ export const useEditorStore = defineStore('editor', () => {
       design: true,
     };
 
-    if (!Array.isArray(config.series) || !config.series.length || config.series.every(s => s.type === 'map')) {
+    if (!Array.isArray(config.series)) {
       config.series = createDefaultSeries() as any;
     }
   };
@@ -170,12 +171,100 @@ export const useEditorStore = defineStore('editor', () => {
 
   const resetRuntimeSelection = () => {
     selectedId.value = 'scene';
+    selectedIds.value = [];
     selectedSceneObject.value = null;
     selectedSceneObjectName.value = '';
     selectedSceneObjectType.value = '';
     selectedSceneObjectVisible.value = true;
     Object.assign(selectedSceneObjectTransform, createTransformState());
     selectedSceneObjectMaterials.value = [];
+  };
+
+  const selectObjects = (ids: Array<string | number>) => {
+    const valid = ids.map(String).filter(id => (config.series as any[]).some(item => String(item.id) === id));
+    selectedIds.value = [...new Set(valid)];
+    selectedId.value = selectedIds.value[selectedIds.value.length - 1] ?? 'scene';
+    if (!valid.length) syncSelectedSceneObject(null);
+  };
+
+  const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const selectionRoots = () => {
+    const series = config.series as any[];
+    const chosen = new Set(selectedIds.value);
+    return selectedIds.value.filter(id => {
+      let parentId = series.find(item => String(item.id) === id)?.parentId;
+      const seen = new Set<string>();
+      while (parentId != null && !seen.has(String(parentId))) {
+        if (chosen.has(String(parentId))) return false;
+        seen.add(String(parentId));
+        parentId = series.find(item => String(item.id) === String(parentId))?.parentId;
+      }
+      return true;
+    });
+  };
+
+  const deleteSelectedObjects = () => {
+    if (!selectedIds.value.length) return;
+    const removed = new Set(selectedIds.value);
+    const series = config.series as any[];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      series.forEach(item => {
+        if (item.parentId != null && removed.has(String(item.parentId)) && !removed.has(String(item.id))) {
+          removed.add(String(item.id));
+          changed = true;
+        }
+      });
+    }
+    config.series = series.filter(item => !removed.has(String(item.id))) as typeof config.series;
+    selectObjects([]);
+  };
+
+  const groupSelectedObjects = () => {
+    const series = config.series as any[];
+    const ids = selectionRoots().filter(id => series.some(item => String(item.id) === id));
+    if (!ids.length) return;
+    const first = series.find(item => String(item.id) === ids[0]);
+    const commonParent = ids.every(id => series.find(item => String(item.id) === id)?.parentId === first?.parentId)
+      ? first?.parentId : undefined;
+    const group = { id: makeId(), name: 'Group', type: 'group', show: true, parentId: commonParent };
+    series.push(group);
+    ids.forEach(id => { series.find(item => String(item.id) === id).parentId = group.id; });
+    selectObjects([group.id]);
+  };
+
+  const ungroupSelectedObjects = () => {
+    const series = config.series as any[];
+    const groups = series.filter(item => item.type === 'group' && selectedIds.value.includes(String(item.id)));
+    groups.forEach(group => {
+      series.forEach(item => {
+        if (String(item.parentId) === String(group.id)) item.parentId = group.parentId;
+      });
+    });
+    const groupIds = new Set(groups.map(group => String(group.id)));
+    config.series = series.filter(item => !groupIds.has(String(item.id))) as typeof config.series;
+    selectObjects([]);
+  };
+
+  const duplicateSelectedObjects = () => {
+    const series = config.series as any[];
+    const roots = selectionRoots().filter(id => series.some(item => String(item.id) === id));
+    const copy = (id: string, parentId?: string | number) => {
+      const source = series.find(item => String(item.id) === id);
+      if (!source) return null;
+      const clone = JSON.parse(JSON.stringify(source));
+      clone.id = makeId();
+      clone.name = `${source.name} Copy`;
+      clone.parentId = parentId ?? source.parentId;
+      if (clone.position) clone.position.x = (clone.position.x ?? 0) + 1;
+      series.push(clone);
+      series.filter(item => String(item.parentId) === id && item !== clone)
+        .forEach(item => copy(String(item.id), clone.id));
+      return clone.id;
+    };
+    const copied = roots.map(id => copy(id)).filter(Boolean) as string[];
+    selectObjects(copied);
   };
 
   const readMaterials = (object: any | null): RuntimeMaterialSummary[] => {
@@ -222,6 +311,7 @@ export const useEditorStore = defineStore('editor', () => {
 
     if (seriesId !== undefined && seriesId !== null) {
       selectedId.value = String(seriesId);
+      if (!selectedIds.value.includes(String(seriesId))) selectedIds.value = [String(seriesId)];
     }
 
     selectedSceneObject.value = object;
@@ -300,6 +390,7 @@ export const useEditorStore = defineStore('editor', () => {
   return {
     isPreview,
     selectedId,
+    selectedIds,
     effectsEnabled,
     activeEffect,
     effectIntensity,
@@ -319,6 +410,11 @@ export const useEditorStore = defineStore('editor', () => {
     loadConfig,
     saveConfig,
     syncSelectedSceneObject,
+    selectObjects,
+    deleteSelectedObjects,
+    groupSelectedObjects,
+    ungroupSelectedObjects,
+    duplicateSelectedObjects,
     renameSelectedSceneObject,
     setSelectedSceneObjectVisible,
     updateSelectedSceneObjectTransform,

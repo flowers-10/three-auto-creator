@@ -497,7 +497,7 @@ three-auto@^0.3.5:
     camera-controls "^3.1.2"
     lil-gui "^0.19.2"
 
-three@>=0.126.1, three@>=0.154:
+three@^0.185.1, three@>=0.126.1, three@>=0.154:
   version "0.185.1"
   resolved "https://registry.npmjs.org/three/-/three-0.185.1.tgz"
   integrity sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==
