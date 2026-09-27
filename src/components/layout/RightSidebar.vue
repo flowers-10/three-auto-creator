@@ -52,6 +52,25 @@
           </div>
         </div>
 
+        <div class="panel-section" v-if="selectedShape">
+          <div class="section-title static-title">Shape</div>
+          <div class="prop-row">
+            <label>Fill</label>
+            <div class="prop-control">
+              <ColorPicker :model-value="selectedShape.color ?? '#638cf4'" :alpha="selectedShape.opacity ?? 1"
+                @update:model-value="updateShapeColor" @update:alpha="updateShapeOpacity" />
+            </div>
+          </div>
+          <div class="prop-row">
+            <label>Width</label>
+            <div class="prop-control"><SmartInput :model-value="selectedShape.size?.x ?? 2" type="number" :min="0.1" :step="0.1" @commit="updateShapeSize('x', $event)" /></div>
+          </div>
+          <div class="prop-row">
+            <label>Height</label>
+            <div class="prop-control"><SmartInput :model-value="selectedShape.size?.y ?? 2" type="number" :min="0.1" :step="0.1" @commit="updateShapeSize('y', $event)" /></div>
+          </div>
+        </div>
+
         <div class="panel-section" v-if="editorStore.selectedSceneObjectMaterials.length">
           <div class="section-title static-title">Material</div>
           <div class="material-list">
@@ -296,6 +315,18 @@ const selectedObject = computed(() => {
   if (editorStore.selectedId === 'scene') return null;
   return editorStore.config.series.find(s => String(s.id) === editorStore.selectedId);
 });
+const selectedShape = computed<any | null>(() => {
+  const item = selectedObject.value as any;
+  return item && ['rectangle', 'ellipse', 'triangle', 'polygon', 'star'].includes(item.type) ? item : null;
+});
+const updateShapeColor = (color: string) => { if (selectedShape.value) selectedShape.value.color = color; };
+const updateShapeOpacity = (opacity: number) => { if (selectedShape.value) selectedShape.value.opacity = opacity; };
+const updateShapeSize = (axis: 'x' | 'y', raw: string) => {
+  const value = Number(raw);
+  if (selectedShape.value && Number.isFinite(value) && value >= 0.1) {
+    selectedShape.value.size = { ...selectedShape.value.size, [axis]: value };
+  }
+};
 
 const getTransformFieldKey = (section: 'position' | 'scale' | 'rotation', axis: 'x' | 'y' | 'z') => `${section}.${axis}`;
 const syncTransformDrafts = () => {

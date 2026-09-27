@@ -10,6 +10,7 @@ export interface Asset {
 }
 
 const STORAGE_KEY = 'three-auto-assets';
+const makeAssetId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export const useAssetStore = defineStore('assets', () => {
   const materials = reactive<Asset[]>([]);
@@ -30,7 +31,7 @@ export const useAssetStore = defineStore('assets', () => {
 
     const newAsset = {
       ...asset,
-      id: Date.now().toString()
+      id: makeAssetId()
     };
     
     list.push(newAsset);
@@ -68,11 +69,21 @@ export const useAssetStore = defineStore('assets', () => {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        materials.push(...(data.materials || []));
-        colors.push(...(data.colors || []));
-        images.push(...(data.images || []));
-        medias.push(...(data.medias || []));
-        audios.push(...(data.audios || []));
+        const replaceList = (list: Asset[], savedList: Asset[] = []) => {
+          const byId = new Map<string, Asset>();
+          for (const asset of savedList) {
+            const previous = byId.get(asset.id);
+            if (previous && JSON.stringify(previous) === JSON.stringify(asset)) continue;
+            const restored = previous ? { ...asset, id: makeAssetId() } : asset;
+            byId.set(restored.id, restored);
+          }
+          list.splice(0, list.length, ...byId.values());
+        };
+        replaceList(materials, data.materials);
+        replaceList(colors, data.colors);
+        replaceList(images, data.images);
+        replaceList(medias, data.medias);
+        replaceList(audios, data.audios);
       } catch (e) {
         console.error('Failed to load assets:', e);
       }

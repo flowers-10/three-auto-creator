@@ -1,7 +1,12 @@
 <template>
   <div class="canvas-container">
     <div class="canvas-wrapper">
-      <canvas id="_scene" @click="onCanvasClick" @contextmenu.prevent="onCanvasContextMenu"></canvas>
+      <canvas id="_scene" :class="{ 'shape-drawing': editorStore.activeTool !== 'select' && !editorStore.isPreview }"
+        @pointerdown.capture="onShapePointerDown" @pointermove.capture="onShapePointerMove"
+        @pointerup.capture="onShapePointerUp" @pointercancel.capture="cancelShapeDrawing"
+        @mousedown.capture="onShapeMouseDown"
+        @click="onCanvasClick" @contextmenu.prevent="onCanvasContextMenu"></canvas>
+      <div v-if="drawDraft" class="shape-draft" :style="draftStyle"></div>
     </div>
     <!-- 底部视图切换 - 属于画布功能部分 -->
     <div class="viewport-controls" v-if="showControls">
@@ -18,10 +23,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import * as THREE from "three";
 import * as AUTO from "three-auto";
-import { useEditorStore } from "../../store/EditorStore";
+import { useEditorStore, type ShapeTool } from "../../store/EditorStore";
 
 const props = defineProps<{
   config: any;
@@ -39,6 +44,18 @@ const editorStore = useEditorStore();
 let instance: any = null;
 const SUPPORTED_SERIES_TYPES = new Set(["map", "earth", "bar", "pie"]);
 let lastDebugSelectedKey = "__init__";
+type DrawPoint = { world: THREE.Vector3; screen: { x: number; y: number } };
+const drawDraft = ref<{ start: DrawPoint; end: DrawPoint } | null>(null);
+const draftStyle = computed(() => {
+  if (!drawDraft.value) return {};
+  const { start, end } = drawDraft.value;
+  return {
+    left: `${Math.min(start.screen.x, end.screen.x)}px`,
+    top: `${Math.min(start.screen.y, end.screen.y)}px`,
+    width: `${Math.abs(start.screen.x - end.screen.x)}px`,
+    height: `${Math.abs(start.screen.y - end.screen.y)}px`,
+  };
+});
 
 // #region debug-point creator-selection-sync
 const reportDebug = (event: string, payload: Record<string, any> = {}) => {
@@ -105,13 +122,51 @@ const syncDesignSelectionFromSidebar = () => {
   }
 };
 
+const shapeTypes = new Set<ShapeTool>(['rectangle', 'ellipse', 'triangle', 'polygon', 'star']);
+const createShapeGeometry = (type: ShapeTool, width: number, height: number) => {
+  if (type === 'rectangle') return new THREE.PlaneGeometry(width, height);
+  if (type === 'ellipse') {
+    const geometry = new THREE.CircleGeometry(0.5, 64);
+    geometry.scale(width, height, 1);
+    return geometry;
+  }
+  const shape = new THREE.Shape();
+  const vertexCount = type === 'triangle' ? 3 : type === 'polygon' ? 5 : 10;
+  for (let index = 0; index < vertexCount; index++) {
+    const angle = Math.PI / 2 + index * Math.PI * 2 / vertexCount;
+    const radius = type === 'star' && index % 2 ? 0.23 : 0.5;
+    const x = Math.cos(angle) * radius * width;
+    const y = Math.sin(angle) * radius * height;
+    if (index === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+};
+
+const applySeriesTransform = (object: THREE.Object3D, item: any) => {
+  object.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
+  object.scale.set(item.scale?.x ?? 1, item.scale?.y ?? 1, item.scale?.z ?? 1);
+  object.rotation.set(item.rotation?.x ?? 0, item.rotation?.y ?? 0, item.rotation?.z ?? 0);
+  object.visible = item.show !== false;
+};
+
 const addPrimitiveObjects = (seriesList: any[] = []) => {
   if (!instance) {
     return;
   }
 
   seriesList.forEach((item: any) => {
-    if (item?.show === false) {
+    if (shapeTypes.has(item?.type)) {
+      const shape = new THREE.Mesh(
+        createShapeGeometry(item.type as ShapeTool, item.size?.x ?? 2, item.size?.y ?? 2),
+        new THREE.MeshBasicMaterial({ color: item.color ?? '#638cf4', opacity: item.opacity ?? 1, transparent: true, side: THREE.DoubleSide }),
+      );
+      shape.name = item.name || item.type;
+      shape.userData.id = item.id;
+      shape.userData.seriesId = item.id;
+      applySeriesTransform(shape, item);
+      instance.scene.add(shape);
       return;
     }
 
@@ -123,7 +178,7 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
       sphere.name = item.name || "Sphere";
       sphere.userData.id = item.id;
       sphere.userData.seriesId = item.id;
-      sphere.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
+      applySeriesTransform(sphere, item);
       instance.scene.add(sphere);
       return;
     }
@@ -136,8 +191,21 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
       cube.name = item.name || "Cube";
       cube.userData.id = item.id;
       cube.userData.seriesId = item.id;
-      cube.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
+      applySeriesTransform(cube, item);
       instance.scene.add(cube);
+      return;
+    }
+
+    if (item?.type === "cylinder") {
+      const cylinder = new THREE.Mesh(
+        new THREE.CylinderGeometry(item.radiusTop ?? 1, item.radiusBottom ?? 1, item.height ?? 2, 48),
+        new THREE.MeshBasicMaterial({ color: item.color ?? "#ff9955" }),
+      );
+      cylinder.name = item.name || "Cylinder";
+      cylinder.userData.id = item.id;
+      cylinder.userData.seriesId = item.id;
+      applySeriesTransform(cylinder, item);
+      instance.scene.add(cylinder);
     }
   });
 };
@@ -152,7 +220,7 @@ const buildGroups = (seriesList: any[]) => {
     group.userData.seriesId = item.id;
     group.userData.designRoot = true;
     group.visible = item.show !== false;
-    group.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
+    applySeriesTransform(group, item);
     instance.scene.add(group);
   });
   seriesList.filter(item => item.parentId != null).forEach(item => {
@@ -203,8 +271,71 @@ const pickEditorObject = (event: MouseEvent): THREE.Object3D | null => {
   return null;
 };
 
+const drawPointFromEvent = (event: PointerEvent): DrawPoint | null => {
+  if (!instance?._camera) return null;
+  const canvas = event.currentTarget as HTMLCanvasElement;
+  const rect = canvas.getBoundingClientRect();
+  const screen = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(
+    (screen.x / rect.width) * 2 - 1,
+    -(screen.y / rect.height) * 2 + 1,
+  ), instance._camera);
+  const world = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), world)) return null;
+  return { screen, world };
+};
+
+const onShapePointerDown = (event: PointerEvent) => {
+  if (editorStore.activeTool === 'select' || editorStore.isPreview || event.button !== 0) return;
+  const start = drawPointFromEvent(event);
+  if (!start) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  (event.currentTarget as HTMLCanvasElement).setPointerCapture(event.pointerId);
+  drawDraft.value = { start, end: start };
+};
+
+const onShapeMouseDown = (event: MouseEvent) => {
+  if (editorStore.activeTool === 'select' || editorStore.isPreview || event.button !== 0) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+};
+
+const onShapePointerMove = (event: PointerEvent) => {
+  if (!drawDraft.value) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const end = drawPointFromEvent(event);
+  if (end) drawDraft.value = { ...drawDraft.value, end };
+};
+
+const onShapePointerUp = (event: PointerEvent) => {
+  if (!drawDraft.value) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (editorStore.activeTool === 'select' || editorStore.isPreview) {
+    drawDraft.value = null;
+    return;
+  }
+  const end = drawPointFromEvent(event) ?? drawDraft.value.end;
+  const start = drawDraft.value.start;
+  const isDrag = Math.hypot(end.screen.x - start.screen.x, end.screen.y - start.screen.y) >= 5;
+  const rounded = (value: number) => Number(value.toFixed(2));
+  const position = isDrag
+    ? { x: rounded((start.world.x + end.world.x) / 2), y: rounded((start.world.y + end.world.y) / 2), z: 0 }
+    : { x: rounded(start.world.x), y: rounded(start.world.y), z: 0 };
+  const size = isDrag
+    ? { x: rounded(Math.max(0.1, Math.abs(end.world.x - start.world.x))), y: rounded(Math.max(0.1, Math.abs(end.world.y - start.world.y))) }
+    : { x: 2, y: 2 };
+  drawDraft.value = null;
+  editorStore.addShape(editorStore.activeTool as ShapeTool, position, size);
+};
+
+const cancelShapeDrawing = () => { drawDraft.value = null; };
+
 const onCanvasClick = (event: MouseEvent) => {
-  if (!instance?.design || editorStore.isPreview) return;
+  if (!instance?.design || editorStore.isPreview || editorStore.activeTool !== 'select') return;
   const current = findEditorObject(instance.design.selectedObject);
   const selected = current || pickEditorObject(event);
   instance.design.select(selected);
@@ -284,9 +415,9 @@ const initThree = () => {
         });
       }
       const selectedSeriesId = selectedObject?.userData?.seriesId;
-      if (selectedObject && (props.selectedId === 'scene' || String(selectedSeriesId) === props.selectedId)) {
+      if (selectedObject && String(selectedSeriesId) === editorStore.selectedId) {
         editorStore.syncSelectedSceneObject(selectedObject);
-      } else if (!selectedObject && (props.selectedId === 'scene' || findSceneObjectForSelection(props.selectedId))) {
+      } else if (!selectedObject && editorStore.selectedId === 'scene') {
         editorStore.syncSelectedSceneObject(null);
       }
       emit('tick', data);
@@ -318,6 +449,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  drawDraft.value = null;
   if (instance) {
     editorStore.syncSelectedSceneObject(null);
     instance.dispose?.();
@@ -345,6 +477,8 @@ onUnmounted(() => {
   height: 100%;
   display: block;
 }
+#_scene.shape-drawing { cursor: crosshair; touch-action: none; }
+.shape-draft { position: absolute; pointer-events: none; border: 1px solid #4777e9; background: #638cf44d; box-shadow: 0 0 0 1px #fff8 inset; z-index: 2; }
 
 .viewport-controls {
   position: absolute;

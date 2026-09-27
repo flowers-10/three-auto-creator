@@ -1,5 +1,6 @@
 <template>
-  <div class="asset-dialog-container" v-if="isOpen" @mousedown.stop>
+  <Teleport to="body">
+  <div class="asset-dialog-container" v-if="isOpen" role="dialog" :aria-label="`${isEdit ? 'Edit' : 'New'} ${typeLabel} Asset`" @mousedown.stop>
     <div class="asset-dialog-content">
       <div class="modal-header">
         <h3>{{ isEdit ? 'Edit' : 'New' }} {{ typeLabel }} Asset</h3>
@@ -11,6 +12,8 @@
           <label>Name</label>
           <input type="text" v-model="form.name" placeholder="Untitled Asset" />
         </div>
+
+        <MaterialAssetEditor v-if="type === 'material'" v-model="materialValue" />
 
         <!-- 图片/媒体上传预览区 -->
         <div v-if="type === 'image' || type === 'media'" class="upload-preview-area">
@@ -43,11 +46,14 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue';
 import IconButton from './IconButton.vue';
+import MaterialAssetEditor from './MaterialAssetEditor.vue';
+import { normalizeMaterialAsset, type MaterialAssetValue } from '../../utils/materialAsset';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -55,7 +61,7 @@ const props = defineProps<{
   asset?: any;
 }>();
 
-const emit = defineEmits(['close', 'save']);
+const emit = defineEmits(['close', 'save', 'change']);
 
 const isEdit = computed(() => !!props.asset);
 const typeLabel = computed(() => props.type.charAt(0).toUpperCase() + props.type.slice(1));
@@ -64,29 +70,25 @@ const form = reactive({
   name: '',
   value: ''
 });
+const materialValue = ref<MaterialAssetValue>(normalizeMaterialAsset(null));
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const fileInfo = ref('');
 
-// 核心：监听 asset 变化，实现实时切换更新内容
-watch(() => props.asset, (newAsset) => {
-  if (newAsset) {
-    form.name = newAsset.name;
-    form.value = newAsset.value;
-  } else {
-    form.name = '';
-    form.value = props.type === 'color' ? '#6366f1' : '';
-  }
+// 每次打开或切换资源时，从已保存的数据重建草稿。
+watch([() => props.isOpen, () => props.asset, () => props.type], () => {
+  if (!props.isOpen) return;
+  form.name = props.asset?.name ?? '';
+  form.value = typeof props.asset?.value === 'string'
+    ? props.asset.value
+    : props.type === 'color' ? '#6366f1' : '';
+  materialValue.value = normalizeMaterialAsset(props.asset?.value);
   fileInfo.value = '';
 }, { immediate: true });
 
-// 监听 type 变化（当新增不同类型资源时）
-watch(() => props.type, (newType) => {
-  if (!props.asset) {
-    form.name = '';
-    form.value = newType === 'color' ? '#6366f1' : '';
-  }
-});
+watch(form, () => {
+  if (props.isOpen) emit('change', { ...form });
+}, { flush: 'sync' });
 
 const triggerFileInput = () => {
   fileInput.value?.click();
@@ -105,7 +107,11 @@ const handleFileChange = (e: Event) => {
 };
 
 const handleSave = () => {
-  emit('save', { ...form, type: props.type });
+  emit('save', {
+    name: form.name.trim() || `Untitled ${typeLabel.value}`,
+    value: props.type === 'material' ? { ...materialValue.value } : form.value,
+    type: props.type,
+  });
   emit('close');
 };
 </script>
@@ -113,9 +119,12 @@ const handleSave = () => {
 <style scoped>
 .asset-dialog-container {
   position: fixed;
-  right: 270px; /* 侧边栏 240px + 间距 */
+  left: 268px; /* 左侧栏 16px + 240px + 12px 间距 */
   top: 80px;
-  width: 260px;
+  width: 320px;
+  max-width: calc(100vw - 284px);
+  max-height: calc(100vh - 96px);
+  box-sizing: border-box;
   background: #fff;
   border-radius: 16px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
@@ -127,11 +136,13 @@ const handleSave = () => {
 .asset-dialog-content {
   display: flex;
   flex-direction: column;
+  max-height: inherit;
 }
 
 .modal-header {
   padding: 12px 16px;
   display: flex;
+  flex-shrink: 0;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid #f0f0f0;
@@ -152,7 +163,7 @@ const handleSave = () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 400px;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -170,6 +181,9 @@ const handleSave = () => {
 }
 
 .form-group input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 8px 12px;
   border: 1px solid #f0f0f0;
   border-radius: 8px;
@@ -215,6 +229,7 @@ const handleSave = () => {
 
 .color-input-row input[type="text"] {
   flex: 1;
+  min-width: 0;
   padding: 8px;
   border: 1px solid #eee;
   border-radius: 8px;
@@ -272,6 +287,7 @@ const handleSave = () => {
 }
 
 .ai-btn {
+  width: 100%;
   background: linear-gradient(135deg, #6366f1, #a855f7);
   color: #fff;
   border: none;
@@ -285,12 +301,14 @@ const handleSave = () => {
 .modal-footer {
   padding: 12px 16px;
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
   border-top: 1px solid #f0f0f0;
 }
 
 .cancel-btn, .save-btn {
   flex: 1;
+  min-width: 0;
   padding: 8px;
   border-radius: 8px;
   font-size: 11px;
@@ -308,5 +326,15 @@ const handleSave = () => {
   background: #007aff;
   border: none;
   color: #fff;
+}
+
+@media (max-width: 620px) {
+  .asset-dialog-container {
+    left: 12px;
+    top: 72px;
+    width: calc(100vw - 24px);
+    max-width: 320px;
+    max-height: calc(100vh - 84px);
+  }
 }
 </style>

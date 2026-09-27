@@ -34,7 +34,10 @@
             >
               <span class="tree-line-guide"></span>
               <button v-if="item.type === 'group'" class="node-toggle" type="button" @click.stop="toggleGroup(item.id)">{{ collapsedGroups.has(String(item.id)) ? '▶' : '▼' }}</button>
-              <span class="tree-icon">{{ getObjectIcon(item.type) }}</span>
+              <span class="tree-icon">
+                <UiIcon v-if="shapeIcon(item.type)" :name="shapeIcon(item.type)!" />
+                <template v-else>{{ getObjectIcon(item.type) }}</template>
+              </span>
               <span class="tree-label">{{ item.name }}</span>
             </div>
           </div>
@@ -67,8 +70,9 @@
               class="asset-item"
               @click="handleEditAsset(asset)"
             >
-              <span class="asset-icon">{{ getAssetIcon(type.key) }}</span>
-              <span class="asset-name">{{ asset.name }}</span>
+              <span v-if="type.key === 'color' || type.key === 'material'" class="asset-color-swatch" :style="{ backgroundColor: type.key === 'material' ? materialColor(asset) : displayedValue(asset) }"></span>
+              <span v-else class="asset-icon">{{ getAssetIcon(type.key) }}</span>
+              <span class="asset-name">{{ displayedName(asset) }}</span>
               <IconButton 
                 class="delete-asset-btn" 
                 type="danger" 
@@ -89,7 +93,8 @@
       :is-open="isAssetDialogOpen" 
       :type="currentAssetType" 
       :asset="editingAsset"
-      @close="isAssetDialogOpen = false" 
+      @change="updateDraft"
+      @close="closeAssetDialog"
       @save="saveAsset"
     />
   </aside>
@@ -100,6 +105,8 @@ import { computed, ref } from 'vue';
 import { useAssetStore } from '../../store/useAssetStore';
 import AssetDialog from '../ui/AssetDialog.vue';
 import IconButton from '../ui/IconButton.vue';
+import { normalizeMaterialAsset } from '../../utils/materialAsset';
+import UiIcon from '../ui/UiIcon.vue';
 
 const props = defineProps<{
   sceneObjects: any[];
@@ -124,6 +131,7 @@ const activeTab = ref('objects');
 const isAssetDialogOpen = ref(false);
 const currentAssetType = ref<'material' | 'color' | 'image' | 'media' | 'audio'>('image');
 const editingAsset = ref<any>(null);
+const draft = ref<{ asset: any; name: string; value: string } | null>(null);
 
 const assetTypes = [
   { key: 'material', label: 'Material' },
@@ -148,13 +156,33 @@ const getAssetIcon = (type: string) => {
   }
 };
 
+const displayedName = (asset: any) => {
+  const current = draft.value;
+  return current && current.asset === asset ? current.name : asset.name;
+};
+const displayedValue = (asset: any) => {
+  const current = draft.value;
+  return current && current.asset === asset ? current.value : asset.value;
+};
+const materialColor = (asset: any) => normalizeMaterialAsset(displayedValue(asset)).color;
+const updateDraft = (form: { name: string; value: string }) => {
+  if (editingAsset.value) draft.value = { asset: editingAsset.value, ...form };
+};
+const closeAssetDialog = () => {
+  isAssetDialogOpen.value = false;
+  draft.value = null;
+  editingAsset.value = null;
+};
+
 const handleAddAsset = (type: 'material' | 'color' | 'image' | 'media' | 'audio') => {
+  draft.value = null;
   currentAssetType.value = type;
   editingAsset.value = null;
   isAssetDialogOpen.value = true;
 };
 
 const handleEditAsset = (asset: any) => {
+  draft.value = null;
   currentAssetType.value = asset.type;
   editingAsset.value = asset;
   isAssetDialogOpen.value = true;
@@ -174,12 +202,16 @@ const getObjectIcon = (type: string) => {
     case 'light': return '💡';
     case 'cube': return '📦';
     case 'sphere': return '⚪';
+    case 'cylinder': return '▥';
     case 'group': return '▣';
     case 'text': return 'T';
     case 'tooltip': return '💬';
     default: return '🔹';
   }
 };
+const shapeIcon = (type: string) => ({
+  rectangle: 'square', ellipse: 'circle', triangle: 'triangle', polygon: 'pentagon', star: 'star',
+} as Record<string, string>)[type];
 </script>
 
 <style scoped>
@@ -302,9 +334,24 @@ const getObjectIcon = (type: string) => {
 }
 
 .tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   font-size: 12px;
   flex-shrink: 0;
   opacity: 0.7;
+}
+.tree-icon :deep(svg) { width: 16px; height: 16px; }
+
+.asset-color-swatch {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 50%;
+  box-sizing: border-box;
 }
 
 .active .tree-icon {

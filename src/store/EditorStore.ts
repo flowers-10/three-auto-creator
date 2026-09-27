@@ -5,6 +5,7 @@ const STORAGE_KEY = 'three-auto-editor-config';
 
 type TransformAxis = 'x' | 'y' | 'z';
 type TransformSection = 'position' | 'scale' | 'rotation';
+export type ShapeTool = 'rectangle' | 'ellipse' | 'triangle' | 'polygon' | 'star';
 type RuntimeMaterialSummary = {
   id: string;
   name: string;
@@ -40,6 +41,7 @@ export const useEditorStore = defineStore('editor', () => {
   const isPreview = ref(false);
   const selectedId = ref('scene');
   const selectedIds = ref<string[]>([]);
+  const activeTool = ref<'select' | ShapeTool>('select');
   const effectsEnabled = ref(false);
   const activeEffect = ref('moebius');
   const effectIntensity = ref(1.0);
@@ -188,6 +190,23 @@ export const useEditorStore = defineStore('editor', () => {
   };
 
   const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const addShape = (type: ShapeTool, position: { x: number; y: number; z: number }, size: { x: number; y: number }) => {
+    const label = type.charAt(0).toUpperCase() + type.slice(1);
+    const id = makeId();
+    (config.series as any[]).push({
+      id,
+      name: label,
+      type,
+      show: true,
+      color: '#638cf4',
+      opacity: 1,
+      position,
+      size,
+      scale: { x: 1, y: 1, z: 1 },
+      rotation: { x: 0, y: 0, z: 0 },
+    });
+    selectObjects([id]);
+  };
   const selectionRoots = () => {
     const series = config.series as any[];
     const chosen = new Set(selectedIds.value);
@@ -353,6 +372,9 @@ export const useEditorStore = defineStore('editor', () => {
 
     selectedSceneObject.value.visible = visible;
     selectedSceneObjectVisible.value = visible;
+    const seriesId = selectedSceneObject.value.userData?.seriesId;
+    const item = (config.series as any[]).find(entry => String(entry.id) === String(seriesId));
+    if (item) item.show = visible;
   };
 
   const updateSelectedSceneObjectTransform = (
@@ -379,6 +401,12 @@ export const useEditorStore = defineStore('editor', () => {
 
     object.updateMatrix?.();
     object.updateMatrixWorld?.(true);
+    const seriesId = object.userData?.seriesId;
+    const item = (config.series as any[]).find(entry => String(entry.id) === String(seriesId));
+    if (item) {
+      const source = section === 'scale' ? object.scale : section === 'rotation' ? object.rotation : object.position;
+      item[section] = { ...(item[section] ?? {}), [axis]: source[axis] };
+    }
     syncSelectedSceneObject(object);
   };
 
@@ -391,6 +419,7 @@ export const useEditorStore = defineStore('editor', () => {
     isPreview,
     selectedId,
     selectedIds,
+    activeTool,
     effectsEnabled,
     activeEffect,
     effectIntensity,
@@ -411,6 +440,7 @@ export const useEditorStore = defineStore('editor', () => {
     saveConfig,
     syncSelectedSceneObject,
     selectObjects,
+    addShape,
     deleteSelectedObjects,
     groupSelectedObjects,
     ungroupSelectedObjects,

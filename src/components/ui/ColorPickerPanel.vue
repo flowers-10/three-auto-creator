@@ -9,7 +9,7 @@
     <div class="picker-tabs">
       <div class="tab" :class="{ active: activeTab === 'custom' }" @click="activeTab = 'custom'">Custom</div>
       <div class="tab" :class="{ active: activeTab === 'assets' }" @click="activeTab = 'assets'">Assets</div>
-      <button class="add-btn">+</button>
+      <button class="add-btn" type="button" title="Save current color to assets" aria-label="Save current color to assets" @click="saveCurrentColor">+</button>
     </div>
 
     <template v-if="activeTab === 'custom'">
@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, watch } from 'vue';
+import { ref, computed, reactive, watch, onUnmounted } from 'vue';
 import { useAssetStore } from '../../store/useAssetStore';
 
 const props = defineProps<{
@@ -74,6 +74,11 @@ const emit = defineEmits(['update:modelValue', 'update:alpha']);
 
 const assetStore = useAssetStore();
 const activeTab = ref('custom');
+const saveCurrentColor = () => {
+  const color = props.modelValue.toUpperCase();
+  assetStore.addAsset({ name: `Color ${color}`, type: 'color', value: color });
+  activeTab.value = 'assets';
+};
 
 // HSV 状态
 const hsv = reactive({ h: 0, s: 100, v: 100 });
@@ -112,8 +117,9 @@ const hexToHSV = (hex: string) => {
 const hsvToHex = (h: number, s: number, v: number) => {
   s /= 100;
   v /= 100;
-  const i = Math.floor(h / 60) % 6;
-  const f = h / 60 - i;
+  const hue = ((h % 360) + 360) % 360;
+  const i = Math.floor(hue / 60);
+  const f = hue / 60 - i;
   const p = v * (1 - s);
   const q = v * (1 - f * s);
   const t = v * (1 - (1 - f) * s);
@@ -222,6 +228,12 @@ const stopAlphaPicking = () => {
   window.removeEventListener('mousemove', updateAlpha);
   window.removeEventListener('mouseup', stopAlphaPicking);
 };
+
+onUnmounted(() => {
+  stopPicking();
+  stopHuePicking();
+  stopAlphaPicking();
+});
 </script>
 
 <style scoped>
