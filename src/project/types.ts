@@ -27,6 +27,7 @@ export type ProjectData = { document: ProjectDocument; files: Map<string, Uint8A
 // model: src, optional detailSrc/assetMatrix/detailAssetMatrix/fitSize, position/rotation/scale.
 // ground: texture, width/depth; image orientation matches the campus ground.
 // instances: src, instanceMatrices: number[][], optional instanceColors: string[].
-// config.environment: { src, background?: boolean, intensity?: number }.
+// config.environment: { src, background?: boolean, intensity?: number, backgroundScale?: number }.
+// backgroundScale defaults to 2 (smaller, distant clouds); 1 preserves the panorama. Whole-number repeats only.
 // config.lighting: { hemisphere?: {sky,ground,intensity}, sun?: {color,intensity,position,castShadow} }.
 // config.camera.target is the orbit target; config.renderer.exposure defaults to 1.1.

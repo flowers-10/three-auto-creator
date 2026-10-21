@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { createSkyBackground } from './skyBackground';
 
 type RuntimeOptions = {
   scene: THREE.Scene;
@@ -326,7 +327,9 @@ export function createSceneRuntime({ scene, camera, renderer, config, resolveAss
       scene.environmentIntensity = config.environment.intensity ?? 0.35;
       if (config.environment.background) {
         texture.mapping = THREE.EquirectangularReflectionMapping;
-        environmentBackground = texture; textures.add(texture); scene.background = texture;
+        const background = createSkyBackground(texture, config.environment.backgroundScale ?? 2);
+        environmentBackground = background; textures.add(background); scene.background = background;
+        if (background !== texture) texture.dispose();
       } else texture.dispose();
     }).catch(error => report(error, path));
     initialTasks.push(task);

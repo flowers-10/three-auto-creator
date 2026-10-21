@@ -1,0 +1,2 @@
+# Keep portable manifests identical to their LF-encoded archive entries.
+public/projects/campus/*.json text eol=lf
