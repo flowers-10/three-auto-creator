@@ -4,8 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/build-viewer.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/build-viewer.mjs",
     "build": "vue-tsc -b && vite build",
+    "test": "node scripts/test-project.mjs && node --test scripts/import-campus.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

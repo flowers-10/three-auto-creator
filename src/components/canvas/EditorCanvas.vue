@@ -7,6 +7,7 @@
         @mousedown.capture="onShapeMouseDown"
         @click="onCanvasClick" @contextmenu.prevent="onCanvasContextMenu"></canvas>
       <div v-if="drawDraft" class="shape-draft" :style="draftStyle"></div>
+      <div v-if="runtimeError" class="runtime-error" role="status">{{ runtimeError }}</div>
     </div>
     <!-- 底部视图切换 - 属于画布功能部分 -->
     <div class="viewport-controls" v-if="showControls">
@@ -27,6 +28,9 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import * as THREE from "three";
 import * as AUTO from "three-auto";
 import { useEditorStore, type ShapeTool } from "../../store/EditorStore";
+import { useProjectStore } from "../../store/ProjectStore";
+import { createSceneRuntime, isVisibleInHierarchy, portableSeriesTypes } from "../../project/sceneRuntime";
+import { updateDesignHandleSizes } from './designHandles';
 
 const props = defineProps<{
   config: any;
@@ -40,8 +44,14 @@ const props = defineProps<{
 
 const emit = defineEmits(['update-camera', 'tick', 'object-context']);
 const editorStore = useEditorStore();
+const projectStore = useProjectStore();
+const runtimeError = ref('');
 
 let instance: any = null;
+let runtime: ReturnType<typeof createSceneRuntime> | null = null;
+let generation = 0;
+let cameraSignature = '';
+const primitiveObjects = new Set<THREE.Mesh>();
 const SUPPORTED_SERIES_TYPES = new Set(["map", "earth", "bar", "pie"]);
 let lastDebugSelectedKey = "__init__";
 type DrawPoint = { world: THREE.Vector3; screen: { x: number; y: number } };
@@ -92,7 +102,7 @@ const tagSeriesObjects = (seriesList: any[]) => {
     const object = findSceneObjectForSelection(String(item.id));
     if (object) {
       object.userData.seriesId = item.id;
-      object.userData.designRoot = true;
+      object.userData.designRoot = item.parentId == null;
     }
   });
 };
@@ -166,6 +176,7 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
       shape.userData.id = item.id;
       shape.userData.seriesId = item.id;
       applySeriesTransform(shape, item);
+      primitiveObjects.add(shape);
       instance.scene.add(shape);
       return;
     }
@@ -179,6 +190,7 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
       sphere.userData.id = item.id;
       sphere.userData.seriesId = item.id;
       applySeriesTransform(sphere, item);
+      primitiveObjects.add(sphere);
       instance.scene.add(sphere);
       return;
     }
@@ -192,6 +204,7 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
       cube.userData.id = item.id;
       cube.userData.seriesId = item.id;
       applySeriesTransform(cube, item);
+      primitiveObjects.add(cube);
       instance.scene.add(cube);
       return;
     }
@@ -205,6 +218,7 @@ const addPrimitiveObjects = (seriesList: any[] = []) => {
       cylinder.userData.id = item.id;
       cylinder.userData.seriesId = item.id;
       applySeriesTransform(cylinder, item);
+      primitiveObjects.add(cylinder);
       instance.scene.add(cylinder);
     }
   });
@@ -226,8 +240,11 @@ const buildGroups = (seriesList: any[]) => {
   seriesList.filter(item => item.parentId != null).forEach(item => {
     const parent = findSceneObjectForSelection(String(item.parentId));
     const child = findSceneObjectForSelection(String(item.id));
-    if (parent && child && parent !== child && parent instanceof THREE.Group) {
-      parent.attach(child);
+    if (parent && child && parent !== child && parent.isGroup) {
+      let ancestor = parent;
+      while (ancestor && ancestor !== child) ancestor = ancestor.parent;
+      if (ancestor === child) return;
+      parent.add(child);
       child.userData.designRoot = false;
     }
   });
@@ -254,8 +271,10 @@ const excludeSceneHelpersFromPicking = () => {
 };
 
 const pickEditorObject = (event: MouseEvent): THREE.Object3D | null => {
-  const canvas = event.currentTarget as HTMLCanvasElement;
+  if (!instance?._camera) return null;
+  const canvas = instance._canvas as HTMLCanvasElement;
   const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
   const pointer = new THREE.Vector2(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
@@ -264,9 +283,13 @@ const pickEditorObject = (event: MouseEvent): THREE.Object3D | null => {
   raycaster.setFromCamera(pointer, instance._camera);
   const hits = raycaster.intersectObjects(instance.scene.children, true);
   for (const hit of hits) {
-    if (hit.object.userData.__designInternal) continue;
+    if (!isVisibleInHierarchy(hit.object)) continue;
     const selected = findEditorObject(hit.object);
-    if (selected) return selected;
+    if (selected) {
+      let root = selected;
+      while (root.parent && root.parent !== instance.scene && root.userData.designRoot !== true) root = root.parent;
+      return findEditorObject(root);
+    }
   }
   return null;
 };
@@ -352,93 +375,212 @@ const onCanvasContextMenu = (event: MouseEvent) => {
   }
 };
 
-const initThree = () => {
-  if (instance) {
-    instance.dispose?.();
-  }
+const getCameraTarget = () => {
+  const target = new THREE.Vector3();
+  if (instance?.design?.controls?.getTarget) instance.design.controls.getTarget(target);
+  else if (instance?.camera?.controls?.target) target.copy(instance.camera.controls.target);
+  else target.set(props.config.camera?.target?.x ?? 0, props.config.camera?.target?.y ?? 0, props.config.camera?.target?.z ?? 0);
+  return target;
+};
 
+const captureCamera = () => {
+  if (!instance?._camera) return null;
+  const target = getCameraTarget();
+  const position = instance._camera.position;
+  return {
+    type: instance._camera.type,
+    position: { x: position.x, y: position.y, z: position.z },
+    target: { x: target.x, y: target.y, z: target.z },
+    ...(instance._camera.isOrthographicCamera ? { zoom: instance._camera.zoom } : {}),
+  };
+};
+
+const setCameraView = (position: THREE.Vector3, target: THREE.Vector3) => {
+  if (!instance?._camera) return;
+  instance._camera.position.copy(position);
+  instance._camera.lookAt(target);
+  const orbit = instance.camera?.controls;
+  if (orbit?.target) { orbit.target.copy(target); orbit.update(); }
+  const designControls = instance.design?.controls;
+  designControls?.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z, false);
+  instance._camera.updateProjectionMatrix();
+};
+
+const focusObject = (id: string) => {
+  const object = findSceneObjectForSelection(String(id));
+  if (!object || !instance?._camera) return;
+  object.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3().setFromObject(object);
+  if (bounds.isEmpty()) return;
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const target = sphere.center;
+  const direction = instance._camera.position.clone().sub(getCameraTarget()).normalize();
+  if (direction.lengthSq() < 0.01) direction.set(1, 0.8, -1).normalize();
+  const distance = Math.max(sphere.radius * 2.8, 5);
+  if (instance.design?.controls) instance.design.controls.maxDistance = Math.max(instance.design.controls.maxDistance, distance * 2);
+  if (instance._camera.isOrthographicCamera) {
+    const height = instance._camera.top - instance._camera.bottom;
+    instance._camera.zoom = height / Math.max(sphere.radius * 2.6, 1);
+  }
+  setCameraView(target.clone().addScaledVector(direction, distance), target);
+};
+
+const disposeThree = () => {
+  generation++;
+  runtime?.dispose(); runtime = null;
+  primitiveObjects.forEach(mesh => {
+    mesh.removeFromParent(); mesh.geometry.dispose();
+    (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach(material => material.dispose());
+  });
+  primitiveObjects.clear();
+  instance?.dispose?.(); instance = null;
+};
+
+const syncObjectTransforms = () => {
+  if (!instance) return;
+  runtime?.sync(props.config.series ?? []);
+  (props.config.series ?? []).forEach((item: any) => {
+    const object = findSceneObjectForSelection(String(item.id));
+    if (!object) return;
+    applySeriesTransform(object, item);
+    object.name = item.name || item.type;
+    object.updateMatrix();
+  });
+};
+
+const initThree = () => {
+  const nextCameraSignature = JSON.stringify({ ...(props.config.camera ?? {}), type: undefined });
+  const savedView = cameraSignature === nextCameraSignature ? captureCamera() : null;
+  disposeThree();
+  const currentGeneration = generation;
+  runtimeError.value = '';
+  cameraSignature = nextCameraSignature;
   const finalConfig = JSON.parse(JSON.stringify(props.config));
   const originalSeries = Array.isArray(finalConfig.series) ? finalConfig.series : [];
   const incomingControls = finalConfig.camera?.controls || {};
+  const hasPortableModels = originalSeries.some((item: any) => portableSeriesTypes.has(item.type));
 
   finalConfig.camera = finalConfig.camera || {};
   finalConfig.camera.controls = {
+    ...incomingControls,
     enable: incomingControls.enable ?? incomingControls.show ?? true,
     enableDamping: incomingControls.enableDamping ?? true,
     enablePan: incomingControls.enablePan ?? true,
-    design: incomingControls.design ?? true,
+    design: {
+      ...(typeof incomingControls.design === 'object' ? incomingControls.design : {}),
+      enable: true,
+      minDistance: incomingControls.minDistance ?? (hasPortableModels ? 1 : 2.5),
+      maxDistance: incomingControls.maxDistance ?? (hasPortableModels ? Math.max(finalConfig.camera.far ?? 2000, 900) : 22),
+    },
   };
   finalConfig.design = true;
   finalConfig.series = originalSeries.filter((item: any) => SUPPORTED_SERIES_TYPES.has(item?.type));
-  
-  // 处理后处理效果
-  if (props.effectsEnabled) {
-    finalConfig.postprocess = { 
-      type: props.activeEffect,
-      intensity: props.effectIntensity
-    };
-  }
-
-  // 处理尺寸预设
-  if (props.config.size.type === 'fullhd') {
-    finalConfig.size = { type: 'fixed', width: 1920, height: 1080 };
-  } else if (props.config.size.type === 'iphone') {
-    finalConfig.size = { type: 'fixed', width: 375, height: 812 };
-  }
+  if (props.effectsEnabled) finalConfig.postprocess = { type: props.activeEffect, intensity: props.effectIntensity };
+  if (props.config.size?.type === 'fullhd') finalConfig.size = { type: 'fixed', width: 1920, height: 1080 };
+  else if (props.config.size?.type === 'iphone') finalConfig.size = { type: 'fixed', width: 375, height: 812 };
 
   try {
     instance = new AUTO.ThreeAuto(undefined, finalConfig);
+    const engine = instance;
+    if (finalConfig.fog?.show) engine.scene.fog = new THREE.Fog(finalConfig.fog.color ?? '#ffffff', finalConfig.fog.near ?? 1, finalConfig.fog.far ?? 1500);
+    runtime = createSceneRuntime({
+      scene: engine.scene, camera: engine._camera, renderer: engine._renderer,
+      config: { ...finalConfig, series: originalSeries },
+      resolveAsset: projectStore.resolveAsset,
+      onError: error => {
+        if (generation !== currentGeneration) return;
+        console.error(error); runtimeError.value = error.message;
+      },
+    });
     addPrimitiveObjects(originalSeries);
     tagSeriesObjects(originalSeries);
     buildGroups(originalSeries);
     excludeSceneHelpersFromPicking();
+    // three-auto bundles Three internally; use stable flags instead of cross-bundle instanceof.
+    if (engine.design) {
+      // The engine caps helper sizes in world units, making them subpixel in campus scenes.
+      // Resize after its native update, before rendering, so hit targets match the visible handles.
+      const updateDesign = engine.design.update.bind(engine.design);
+      engine.design.update = () => {
+        updateDesign();
+        updateDesignHandleSizes(engine.design, engine._camera, engine._canvas.clientHeight);
+      };
+      for (const property of ['minPolarAngle', 'maxPolarAngle', 'minAzimuthAngle', 'maxAzimuthAngle']) {
+        if (typeof incomingControls[property] === 'number') engine.design.controls[property] = incomingControls[property];
+      }
+      engine.design.getSelectableMeshes = () => {
+        const meshes: THREE.Object3D[] = [];
+        engine.scene.traverse((object: any) => {
+          if (object.isMesh && isVisibleInHierarchy(object) && object.userData.designSelectable !== false && findEditorObject(object)) meshes.push(object);
+        });
+        return meshes;
+      };
+    }
+    const cameraPosition = savedView?.position ?? finalConfig.camera.position ?? { x: 0, y: 0, z: 20 };
+    const target = savedView?.target ?? finalConfig.camera.target ?? { x: 0, y: 0, z: 0 };
+    setCameraView(new THREE.Vector3(cameraPosition.x, cameraPosition.y, cameraPosition.z), new THREE.Vector3(target.x, target.y, target.z));
+    if (engine._camera.isOrthographicCamera) {
+      const distance = engine._camera.position.distanceTo(new THREE.Vector3(target.x, target.y, target.z));
+      const viewHeight = 2 * Math.max(distance, 1) * Math.tan(THREE.MathUtils.degToRad(finalConfig.camera.fov ?? 75) / 2);
+      engine._camera.zoom = savedView?.zoom ?? finalConfig.camera.zoom ?? ((engine._camera.top - engine._camera.bottom) / viewHeight);
+      engine._camera.updateProjectionMatrix();
+    }
     syncDesignSelectionFromSidebar();
-    instance.time.on("tick", (data: any) => {
-      let selectedObject = instance?.design?.selectedObject ?? null;
+    runtime.ready.then(() => {
+      if (generation !== currentGeneration || instance !== engine) return;
+      tagSeriesObjects(originalSeries);
+      excludeSceneHelpersFromPicking();
+      syncDesignSelectionFromSidebar();
+    });
+    engine.time.on("tick", (data: any) => {
+      if (instance !== engine || generation !== currentGeneration) return;
+      runtime?.update();
+      let selectedObject = engine.design?.selectedObject ?? null;
       const editableObject = selectedObject ? findEditorObject(selectedObject) : null;
       if (selectedObject && !editableObject) {
-        instance.design.select(null);
+        engine.design.select(null);
         editorStore.syncSelectedSceneObject(null);
         selectedObject = null;
       } else if (editableObject && editableObject !== selectedObject) {
-        instance.design.select(editableObject);
+        engine.design.select(editableObject);
         selectedObject = editableObject;
       }
       const currentKey = selectedObject ? `${selectedObject.uuid}:${selectedObject.userData?.seriesId ?? "none"}` : "scene";
       if (currentKey !== lastDebugSelectedKey) {
         lastDebugSelectedKey = currentKey;
-        reportDebug("tick-selection", {
-          selectedId: props.selectedId,
-          selectedName: selectedObject?.name ?? null,
-          selectedType: selectedObject?.type ?? null,
-          selectedSeriesId: selectedObject?.userData?.seriesId ?? null,
-        });
+        reportDebug("tick-selection", { selectedId: props.selectedId, selectedName: selectedObject?.name ?? null, selectedSeriesId: selectedObject?.userData?.seriesId ?? null });
       }
       const selectedSeriesId = selectedObject?.userData?.seriesId;
-      if (selectedObject && String(selectedSeriesId) === editorStore.selectedId) {
-        editorStore.syncSelectedSceneObject(selectedObject);
-      } else if (!selectedObject && editorStore.selectedId === 'scene') {
-        editorStore.syncSelectedSceneObject(null);
-      }
+      if (selectedObject && String(selectedSeriesId) === editorStore.selectedId) editorStore.syncSelectedSceneObject(selectedObject);
+      else if (!selectedObject && editorStore.selectedId === 'scene') editorStore.syncSelectedSceneObject(null);
       emit('tick', data);
     });
-  } catch (e) {
-    console.error("ThreeAuto initialization failed:", e);
+  } catch (error) {
+    console.error("ThreeAuto initialization failed:", error);
+    runtimeError.value = error instanceof Error ? error.message : String(error);
   }
 };
 
-// 暴露 resize 方法给外部
-defineExpose({
-  resize: () => instance?.resize?.()
-});
+defineExpose({ resize: () => instance?.resize?.(), focusObject, captureCamera });
 
-let updateTimer: any = null;
-watch(() => [props.config, props.effectsEnabled, props.activeEffect, props.effectIntensity], () => {
-  clearTimeout(updateTimer);
-  updateTimer = setTimeout(() => {
-    initThree();
-  }, 300);
-}, { deep: true });
+let updateTimer: ReturnType<typeof setTimeout> | null = null;
+const structuralConfig = () => {
+  const { series = [], ...sceneConfig } = props.config;
+  return JSON.stringify({
+    ...sceneConfig,
+    series: series.map((item: any) => {
+      const { position: _position, rotation: _rotation, scale: _scale, name: _name, show: _show, ...structure } = item;
+      return structure;
+    }),
+    effectsEnabled: props.effectsEnabled, activeEffect: props.activeEffect, effectIntensity: props.effectIntensity,
+    projectId: projectStore.projectId, filesRevision: projectStore.filesRevision,
+  });
+};
+watch(structuralConfig, () => {
+  if (updateTimer) clearTimeout(updateTimer);
+  updateTimer = setTimeout(() => { updateTimer = null; initThree(); }, 120);
+});
+watch(() => (props.config.series ?? []).map((item: any) => ({ id: item.id, position: item.position, rotation: item.rotation, scale: item.scale, name: item.name, show: item.show })), syncObjectTransforms, { deep: true });
 
 watch(() => props.selectedId, () => {
   syncDesignSelectionFromSidebar();
@@ -450,10 +592,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   drawDraft.value = null;
-  if (instance) {
-    editorStore.syncSelectedSceneObject(null);
-    instance.dispose?.();
-  }
+  if (updateTimer) clearTimeout(updateTimer);
+  editorStore.syncSelectedSceneObject(null);
+  disposeThree();
 });
 </script>
 
@@ -479,6 +620,8 @@ onUnmounted(() => {
 }
 #_scene.shape-drawing { cursor: crosshair; touch-action: none; }
 .shape-draft { position: absolute; pointer-events: none; border: 1px solid #4777e9; background: #638cf44d; box-shadow: 0 0 0 1px #fff8 inset; z-index: 2; }
+
+.runtime-error { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 3; padding: 10px 14px; border-radius: 8px; background: #fff4e9ed; color: #7b381b; font-size: 12px; pointer-events: none; }
 
 .viewport-controls {
   position: absolute;

@@ -11,7 +11,16 @@ export default defineConfig({
     watch: true,
   }),],
   server: {
-    port: 2025
+    host: true, // 监听 0.0.0.0，允许局域网通过 IP 访问
+    port: 2025,
+    strictPort: true,
+    allowedHosts: true, // 允许使用 IP / 域名直接访问（绕过 Vite host 检查）
+  },
+  preview: {
+    host: true,
+    port: 2025,
+    strictPort: true,
+    allowedHosts: true,
   },
   resolve: {
     alias: {

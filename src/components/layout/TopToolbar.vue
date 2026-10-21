@@ -14,8 +14,7 @@
       <button class="tool-btn quick-btn" :class="{ active: editorStore.activeTool === 'select' }" type="button" title="Select (V)" aria-label="Select" @click="activateSelect"><UiIcon name="select" /></button>
       <button class="tool-btn quick-btn" type="button" title="Preview" aria-label="Preview" @click="togglePreview"><UiIcon name="preview" /></button>
       <div class="divider"></div>
-      <button class="share-btn" type="button" @click="showPending('Share')">Share</button>
-      <button class="export-btn" type="button" @click="showPending('Export')">Export</button>
+      <ProjectMenu />
     </div>
 
     <div v-if="shapeMenuOpen" class="shape-menu" role="menu" aria-label="Shape tools">
@@ -58,6 +57,7 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useEditorStore } from '../../store/EditorStore';
 import UiIcon from '../ui/UiIcon.vue';
+import ProjectMenu from './ProjectMenu.vue';
 import type { ShapeTool } from '../../store/EditorStore';
 
 type PrimitiveType = 'cube' | 'sphere' | 'cylinder';

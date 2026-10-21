@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { reactive, watch } from 'vue';
+import type { AssetSnapshot } from '../project/types';
 
 export interface Asset {
   id: string;
@@ -18,6 +19,13 @@ export const useAssetStore = defineStore('assets', () => {
   const images = reactive<Asset[]>([]);
   const medias = reactive<Asset[]>([]);
   const audios = reactive<Asset[]>([]);
+  const getSnapshot = (): AssetSnapshot => JSON.parse(JSON.stringify({ materials, colors, images, medias, audios }));
+  const replaceSnapshot = (snapshot: AssetSnapshot) => {
+    const next = JSON.parse(JSON.stringify(snapshot)) as AssetSnapshot;
+    for (const [key, list] of Object.entries({ materials, colors, images, medias, audios })) {
+      list.splice(0, list.length, ...next[key as keyof AssetSnapshot]);
+    }
+  };
 
   const addAsset = (asset: Omit<Asset, 'id'>) => {
     // 去重逻辑：检查同类型下是否有同名资源
@@ -105,6 +113,8 @@ export const useAssetStore = defineStore('assets', () => {
     images,
     medias,
     audios,
+    getSnapshot,
+    replaceSnapshot,
     addAsset,
     updateAsset,
     removeAsset,

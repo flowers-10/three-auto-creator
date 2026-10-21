@@ -2,6 +2,8 @@
   <div class="three-editor" :class="{ 'preview-mode': isPreview }">
     <!-- 画布组件 - 独立于 UI 布局 -->
     <EditorCanvas 
+      v-if="projectStore.ready"
+      :key="projectStore.projectId"
       ref="canvasRef"
       :config="config" 
       :selected-id="selectedId"
@@ -80,6 +82,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { useEditorStore } from "../../store/EditorStore";
 import { useAssetStore } from "../../store/useAssetStore";
+import { useProjectStore } from "../../store/ProjectStore";
 
 // 导入子组件
 import TopToolbar from "./TopToolbar.vue";
@@ -90,6 +93,7 @@ import InputDialog from "../ui/InputDialog.vue";
 
 const editorStore = useEditorStore();
 const assetStore = useAssetStore();
+const projectStore = useProjectStore();
 
 // 从 store 中提取状态
 const { 
@@ -209,6 +213,7 @@ const onPointerDown = (event: PointerEvent) => {
 onMounted(() => {
   editorStore.loadConfig();
   assetStore.loadAssets();
+  void projectStore.initialize();
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('pointerdown', onPointerDown);
 });

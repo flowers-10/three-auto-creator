@@ -1,0 +1,348 @@
+{
+  "project": "研发园区扩展版",
+  "format": "three-auto-creator",
+  "version": 1,
+  "generatedAt": "2026-10-21T07:22:51.921Z",
+  "sourceLayout": "three-auto/packages/examples",
+  "validation": {
+    "passed": true,
+    "resourceBytesPreserved": true,
+    "assetMatricesMatchSource": true,
+    "sourceFiles": [
+      {
+        "path": "src/campusExpanded.ts",
+        "sha256": "999409ebb87f163ba793c48f8f4b11c06dc8cda24308a08bfb2a8071de4fc8c1"
+      },
+      {
+        "path": "src/campus/buildingLayout.ts",
+        "sha256": "e99706edcf754dda9ba6d563a2108e811bbeb7ac7a61bb7a68c7376286ccaa72"
+      },
+      {
+        "path": "src/campus-expanded/landmarkLayout.ts",
+        "sha256": "dbdf314bbfa218af72d75f29cfb89f809324972d6d258ae3082b4acc2e713550"
+      },
+      {
+        "path": "src/campus-expanded/layout.ts",
+        "sha256": "b7712705e5692f2b644d19892a953ffb90d319e077d012644a5e2c1d49e3c108"
+      },
+      {
+        "path": "src/campus-expanded/trees.ts",
+        "sha256": "d75e3d54aa72faa27a0a16cc3ed9be153da787ab5f7ad378fbfc1e1b71688e78"
+      },
+      {
+        "path": "src/campus-expanded/ground.ts",
+        "sha256": "e84cc901cb915427b23075ce935db08fede2054c68dd30369245edb71d571a79"
+      }
+    ]
+  },
+  "seriesCount": 7,
+  "modelCount": 4,
+  "treeCount": 319,
+  "ground": {
+    "width": 772,
+    "depth": 509.5,
+    "textureWidth": 1545,
+    "textureHeight": 1018
+  },
+  "landmarks": [
+    {
+      "id": "main",
+      "name": "紫金科创",
+      "anchor": {
+        "x": 83.19611650485437,
+        "y": 0,
+        "z": -52.051080550098234
+      },
+      "light": {
+        "min": {
+          "x": 38.3735627185828,
+          "y": 0.0799999999999983,
+          "z": -75.06008589587162
+        },
+        "max": {
+          "x": 128.01867029112594,
+          "y": 33.08,
+          "z": -29.04207520432488
+        },
+        "size": {
+          "x": 89.64510757254314,
+          "y": 33,
+          "z": 46.01801069154674
+        }
+      },
+      "detail": {
+        "min": {
+          "x": 38.39263324760719,
+          "y": 0.0799999999999983,
+          "z": -75.05833879594489
+        },
+        "max": {
+          "x": 127.99959976210154,
+          "y": 33.08,
+          "z": -29.043822304251588
+        },
+        "size": {
+          "x": 89.60696651449435,
+          "y": 33,
+          "z": 46.0145164916933
+        }
+      }
+    },
+    {
+      "id": "twin-glass",
+      "name": "绿峰中心",
+      "anchor": {
+        "x": 93.6893203883495,
+        "y": 0,
+        "z": 26.526031434184674
+      },
+      "light": {
+        "min": {
+          "x": 52.28527660170372,
+          "y": 0.0799999999999983,
+          "z": 8.409265180632467
+        },
+        "max": {
+          "x": 135.0933641749953,
+          "y": 50.080000000000005,
+          "z": 44.64279768773688
+        },
+        "size": {
+          "x": 82.80808757329157,
+          "y": 50.00000000000001,
+          "z": 36.233532507104414
+        }
+      },
+      "detail": {
+        "min": {
+          "x": 52.284831228799696,
+          "y": 0.0799999999999983,
+          "z": 8.40667780562459
+        },
+        "max": {
+          "x": 135.09380954789933,
+          "y": 50.08,
+          "z": 44.64538506274476
+        },
+        "size": {
+          "x": 82.80897831909962,
+          "y": 50,
+          "z": 36.23870725712017
+        }
+      }
+    },
+    {
+      "id": "dusk-glass",
+      "name": "永创智能",
+      "anchor": {
+        "x": 226.35339805825242,
+        "y": 0,
+        "z": -50.54960707269154
+      },
+      "light": {
+        "min": {
+          "x": 204.69882070480267,
+          "y": 0.0799999999999983,
+          "z": -69.22496820561642
+        },
+        "max": {
+          "x": 248.00797541170212,
+          "y": 78.08,
+          "z": -31.87424593976669
+        },
+        "size": {
+          "x": 43.30915470689945,
+          "y": 78,
+          "z": 37.350722265849726
+        }
+      },
+      "detail": {
+        "min": {
+          "x": 204.69709468818098,
+          "y": 0.0799999999999983,
+          "z": -69.22520784557142
+        },
+        "max": {
+          "x": 248.00970142832392,
+          "y": 78.08,
+          "z": -31.87400629981169
+        },
+        "size": {
+          "x": 43.31260674014294,
+          "y": 78,
+          "z": 37.35120154575973
+        }
+      }
+    },
+    {
+      "id": "yellow-courtyard",
+      "name": "黄色合院",
+      "anchor": {
+        "x": 69.95469255663431,
+        "y": 0,
+        "z": -146.89415520628683
+      },
+      "light": {
+        "min": {
+          "x": 21.409391021330663,
+          "y": 0.08000000000000007,
+          "z": -186.06760315814586
+        },
+        "max": {
+          "x": 118.49999409193796,
+          "y": 19.08,
+          "z": -107.72070725442778
+        },
+        "size": {
+          "x": 97.0906030706073,
+          "y": 19,
+          "z": 78.34689590371808
+        }
+      },
+      "detail": {
+        "min": {
+          "x": 21.409167821917762,
+          "y": 0.0799999999999983,
+          "z": -186.0688865774747
+        },
+        "max": {
+          "x": 118.50021729135084,
+          "y": 19.08,
+          "z": -107.71942383509895
+        },
+        "size": {
+          "x": 97.09104946943307,
+          "y": 19,
+          "z": 78.34946274237575
+        }
+      }
+    }
+  ],
+  "trees": [
+    {
+      "species": "canopy",
+      "count": 157,
+      "bounds": {
+        "min": {
+          "x": -274.8871344848398,
+          "y": 0.07999999999999963,
+          "z": -219.6628715178197
+        },
+        "max": {
+          "x": 309.10390575274005,
+          "y": 9.831110397902085,
+          "z": 221.44409941314046
+        },
+        "size": {
+          "x": 583.9910402375799,
+          "y": 9.751110397902085,
+          "z": 441.1069709309602
+        }
+      }
+    },
+    {
+      "species": "roadside",
+      "count": 162,
+      "bounds": {
+        "min": {
+          "x": -270.1104624326204,
+          "y": 0.07999999999999963,
+          "z": -220.42970547794076
+        },
+        "max": {
+          "x": 294.64038204129133,
+          "y": 10.844051981336525,
+          "z": 232.5107770632397
+        },
+        "size": {
+          "x": 564.7508444739117,
+          "y": 10.764051981336525,
+          "z": 452.9404825411805
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "path": "assets/models/campus-expanded/ground-landscaped.png",
+      "source": "public/models/campus-expanded/ground-landscaped.png",
+      "bytes": 2221042,
+      "sha256": "010db6fce2cdadbad51cfb8c9bfa3bd16c7f1749a52f482814d945d0b8992b0d"
+    },
+    {
+      "path": "assets/hdr/kloofendal-sky-2k.hdr",
+      "source": "public/hdr/kloofendal-sky-2k.hdr",
+      "bytes": 5488647,
+      "sha256": "362cd6926a8cc79c8a87f1d204d5008123c528937c5baf2263e696d428c19346"
+    },
+    {
+      "path": "assets/models/campus/twin-terrace.glb",
+      "source": "public/models/campus/twin-terrace.glb",
+      "bytes": 4173584,
+      "sha256": "7a569e2181562785b5b921fb95a5d5e4d7c7650f3ddeae729c3c4b47d4de4ecc"
+    },
+    {
+      "path": "assets/models/campus/twin-terrace-detail.glb",
+      "source": "public/models/campus/twin-terrace-detail.glb",
+      "bytes": 63606256,
+      "sha256": "e9f2a69f88e3ccca55ccacdd5f8870a2bdd04f68b1847884f2be363681e7eaf1"
+    },
+    {
+      "path": "assets/models/campus/twin-terrace-glass-mask.webp",
+      "source": "public/models/campus/twin-terrace-glass-mask.webp",
+      "bytes": 907218,
+      "sha256": "1e097131d7982a690c0b0dfe54c8bde1ea1240762a6f1534e09f4a17944f847e"
+    },
+    {
+      "path": "assets/models/campus/twin-glass-towers.glb",
+      "source": "public/models/campus/twin-glass-towers.glb",
+      "bytes": 1745280,
+      "sha256": "d268c1da5ce3bd8e8613bbef2b80d4b7dde42233d21b44465dd14a0807fc47da"
+    },
+    {
+      "path": "assets/models/campus/twin-glass-towers-detail.glb",
+      "source": "public/models/campus/twin-glass-towers-detail.glb",
+      "bytes": 5134500,
+      "sha256": "8d70a5302fda81c408fb24359daa31ffefc3a08bc6b9222fac600a3f0ce23bbb"
+    },
+    {
+      "path": "assets/models/campus/dusk-glass-tower.glb",
+      "source": "public/models/campus/dusk-glass-tower.glb",
+      "bytes": 2065980,
+      "sha256": "e0c95828e0d67157694ae86d8ed238bdbdd33626ff40a0ca97c4aa13d18d595b"
+    },
+    {
+      "path": "assets/models/campus/dusk-glass-tower-detail.glb",
+      "source": "public/models/campus/dusk-glass-tower-detail.glb",
+      "bytes": 8003288,
+      "sha256": "cb82543d0fd3dbc026c1749227ef932f94520731b6e67dd6cefd18d50b17c5e7"
+    },
+    {
+      "path": "assets/models/campus/yellow-courtyard.glb",
+      "source": "public/models/campus/yellow-courtyard.glb",
+      "bytes": 1779108,
+      "sha256": "2c6d84cfa694edfebfc7f47d567ab4dc4daf8d0633fb5ded3929bbd9c3ce442d"
+    },
+    {
+      "path": "assets/models/campus/yellow-courtyard-detail.glb",
+      "source": "public/models/campus/yellow-courtyard-detail.glb",
+      "bytes": 11573764,
+      "sha256": "91643c4ea2e4b6ca5d53d9042dbdfa46f47d94b96547b861c27657d24f82ab66"
+    },
+    {
+      "path": "assets/models/campus/canopy-tree.glb",
+      "source": "public/models/campus/canopy-tree.glb",
+      "bytes": 739224,
+      "sha256": "2ac2ee84bc820b5f7f86cd264ac7faef7cd35973132019d6dae811ef346b1186"
+    },
+    {
+      "path": "assets/models/campus/roadside-tree.glb",
+      "source": "public/models/campus/roadside-tree.glb",
+      "bytes": 1083952,
+      "sha256": "b096046593019d105bbf7234b466a9b016befd4b5f32eabd1913a44ea276d0a7"
+    }
+  ],
+  "resourceCount": 13,
+  "rawResourceBytes": 108521843,
+  "archiveBytes": 85937218
+}

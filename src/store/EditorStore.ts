@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import { reactive, ref, shallowRef, watch } from 'vue';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import type { EditorSnapshot } from '../project/types';
 
 const STORAGE_KEY = 'three-auto-editor-config';
 
@@ -106,6 +108,45 @@ export const useEditorStore = defineStore('editor', () => {
     series: createDefaultSeries(),
   });
 
+  const getSnapshot = (): EditorSnapshot => JSON.parse(JSON.stringify({
+    config, effectsEnabled: effectsEnabled.value, activeEffect: activeEffect.value,
+    effectIntensity: effectIntensity.value, ambientIntensity: ambientIntensity.value,
+    ambientEnabled: ambientEnabled.value, lightColor: lightColor.value,
+    lightAlpha: lightAlpha.value, shadowType: shadowType.value, expandedSections,
+  }));
+  const initialSnapshot = getSnapshot();
+  const createBlankState = (name: string): EditorSnapshot => {
+    const state = JSON.parse(JSON.stringify(initialSnapshot)) as EditorSnapshot;
+    state.config.name = name;
+    state.config.series = [];
+    state.config.camera.controls.enable = true;
+    state.config.lighting = { hemisphere: { sky: '#ffffff', ground: '#738167', intensity: 1.15 },
+      sun: { color: '#fff4dc', intensity: 1.6, position: { x: -90, y: 160, z: 55 }, castShadow: false } };
+    return state;
+  };
+  const applySnapshot = (snapshot: EditorSnapshot) => {
+    const next = JSON.parse(JSON.stringify(snapshot)) as EditorSnapshot;
+    next.config = { ...JSON.parse(JSON.stringify(initialSnapshot.config)), ...next.config };
+    for (const section of ['camera', 'renderer', 'size', 'shadow', 'fog']) {
+      next.config[section] = { ...JSON.parse(JSON.stringify(initialSnapshot.config[section])), ...next.config[section] };
+    }
+    for (const key of Object.keys(config)) delete (config as any)[key];
+    Object.assign(config, next.config);
+    config.camera.controls = { ...createDefaultCameraControls(), ...next.config.camera?.controls, design: true };
+    effectsEnabled.value = next.effectsEnabled;
+    activeEffect.value = next.activeEffect;
+    effectIntensity.value = next.effectIntensity;
+    ambientIntensity.value = next.ambientIntensity;
+    ambientEnabled.value = next.ambientEnabled;
+    lightColor.value = next.lightColor;
+    lightAlpha.value = next.lightAlpha;
+    shadowType.value = next.shadowType;
+    Object.assign(expandedSections, next.expandedSections);
+    isPreview.value = false;
+    activeTool.value = 'select';
+    resetRuntimeSelection();
+  };
+
   const loadConfig = () => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -166,7 +207,8 @@ export const useEditorStore = defineStore('editor', () => {
       shadowType: shadowType.value,
       expandedSections: JSON.parse(JSON.stringify(expandedSections))
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+    catch (error) { console.warn('Legacy editor state could not be saved:', error); }
   };
 
   const roundValue = (value: number) => Number(value.toFixed(2));
@@ -240,28 +282,70 @@ export const useEditorStore = defineStore('editor', () => {
     selectObjects([]);
   };
 
+  const localMatrix = (item: any) => new Matrix4().compose(
+    new Vector3(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0),
+    new Quaternion().setFromEuler(new Euler(item.rotation?.x ?? 0, item.rotation?.y ?? 0, item.rotation?.z ?? 0)),
+    new Vector3(item.scale?.x ?? 1, item.scale?.y ?? 1, item.scale?.z ?? 1),
+  );
+  const recordLocalMatrix = (item: any, matrix: Matrix4) => {
+    const position = new Vector3(), rotation = new Quaternion(), scale = new Vector3();
+    matrix.decompose(position, rotation, scale);
+    const euler = new Euler().setFromQuaternion(rotation);
+    item.position = { x: position.x, y: position.y, z: position.z };
+    item.rotation = { x: euler.x, y: euler.y, z: euler.z };
+    item.scale = { x: scale.x, y: scale.y, z: scale.z };
+  };
+  // Snapshot local matrices before any parentId changes, including simultaneous
+  // removal of nested groups. Imported model asset matrices remain untouched.
+  const snapshotHierarchy = (series: any[]) => new Map(series.map(item => [String(item.id), {
+    parentId: item.parentId, matrix: localMatrix(item),
+  }]));
+
   const groupSelectedObjects = () => {
     const series = config.series as any[];
     const ids = selectionRoots().filter(id => series.some(item => String(item.id) === id));
     if (!ids.length) return;
     const first = series.find(item => String(item.id) === ids[0]);
-    const commonParent = ids.every(id => series.find(item => String(item.id) === id)?.parentId === first?.parentId)
+    const commonParent = ids.every(id => String(series.find(item => String(item.id) === id)?.parentId) === String(first?.parentId))
       ? first?.parentId : undefined;
+    const hierarchy = snapshotHierarchy(series);
+    const worldMatrix = (id: string, seen = new Set<string>()): Matrix4 => {
+      const node = hierarchy.get(id);
+      if (!node || seen.has(id)) return new Matrix4();
+      seen.add(id);
+      return node.parentId == null ? node.matrix.clone()
+        : worldMatrix(String(node.parentId), seen).multiply(node.matrix);
+    };
     const group = { id: makeId(), name: 'Group', type: 'group', show: true, parentId: commonParent };
     series.push(group);
-    ids.forEach(id => { series.find(item => String(item.id) === id).parentId = group.id; });
+    ids.forEach(id => {
+      const item = series.find(entry => String(entry.id) === id);
+      // A common parent allows unchanged local TRS. Mixed parents move into a
+      // new root group, so each child receives its previous world transform.
+      if (commonParent == null && item.parentId != null) recordLocalMatrix(item, worldMatrix(id));
+      item.parentId = group.id;
+    });
     selectObjects([group.id]);
   };
 
   const ungroupSelectedObjects = () => {
     const series = config.series as any[];
     const groups = series.filter(item => item.type === 'group' && selectedIds.value.includes(String(item.id)));
-    groups.forEach(group => {
-      series.forEach(item => {
-        if (String(item.parentId) === String(group.id)) item.parentId = group.parentId;
-      });
-    });
     const groupIds = new Set(groups.map(group => String(group.id)));
+    const hierarchy = snapshotHierarchy(series);
+    series.filter(item => !groupIds.has(String(item.id)) && groupIds.has(String(item.parentId))).forEach(item => {
+      const matrix = hierarchy.get(String(item.id))!.matrix.clone();
+      let parentId = hierarchy.get(String(item.id))!.parentId;
+      const seen = new Set<string>();
+      while (groupIds.has(String(parentId)) && !seen.has(String(parentId))) {
+        seen.add(String(parentId));
+        const parent = hierarchy.get(String(parentId))!;
+        matrix.premultiply(parent.matrix);
+        parentId = parent.parentId;
+      }
+      recordLocalMatrix(item, matrix);
+      item.parentId = parentId;
+    });
     config.series = series.filter(item => !groupIds.has(String(item.id))) as typeof config.series;
     selectObjects([]);
   };
@@ -347,6 +431,16 @@ export const useEditorStore = defineStore('editor', () => {
     selectedSceneObjectTransform.rotation.y = roundValue(object.rotation?.y ?? 0);
     selectedSceneObjectTransform.rotation.z = roundValue(object.rotation?.z ?? 0);
     selectedSceneObjectMaterials.value = readMaterials(object);
+    // Record handle drags as well as property-field edits, without rounding exports.
+    if (matchedSeries) {
+      for (const section of ['position', 'rotation', 'scale'] as const) {
+        const current = object[section];
+        const previous = (matchedSeries as any)[section];
+        if (current && ['x', 'y', 'z'].some(axis => previous?.[axis] !== current[axis])) {
+          (matchedSeries as any)[section] = { x: current.x, y: current.y, z: current.z };
+        }
+      }
+    }
   };
 
   const renameSelectedSceneObject = (name: string) => {
@@ -387,7 +481,7 @@ export const useEditorStore = defineStore('editor', () => {
     }
 
     const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
-    if (Number.isNaN(value)) {
+    if (!Number.isFinite(value) || (section === 'scale' && Math.abs(value) < .000001)) {
       return;
     }
 
@@ -430,6 +524,9 @@ export const useEditorStore = defineStore('editor', () => {
     shadowType,
     expandedSections,
     config,
+    getSnapshot,
+    createBlankState,
+    applySnapshot,
     selectedSceneObject,
     selectedSceneObjectName,
     selectedSceneObjectType,
