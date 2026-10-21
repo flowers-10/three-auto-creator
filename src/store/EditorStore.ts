@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { reactive, ref, shallowRef, watch } from 'vue';
+import { computed, reactive, ref, shallowRef, watch } from 'vue';
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { EditorSnapshot } from '../project/types';
 
@@ -124,7 +124,7 @@ export const useEditorStore = defineStore('editor', () => {
       sun: { color: '#fff4dc', intensity: 1.6, position: { x: -90, y: 160, z: 55 }, castShadow: false } };
     return state;
   };
-  const applySnapshot = (snapshot: EditorSnapshot) => {
+  const restoreSnapshot = (snapshot: EditorSnapshot) => {
     const next = JSON.parse(JSON.stringify(snapshot)) as EditorSnapshot;
     next.config = { ...JSON.parse(JSON.stringify(initialSnapshot.config)), ...next.config };
     for (const section of ['camera', 'renderer', 'size', 'shadow', 'fog']) {
@@ -142,9 +142,13 @@ export const useEditorStore = defineStore('editor', () => {
     lightAlpha.value = next.lightAlpha;
     shadowType.value = next.shadowType;
     Object.assign(expandedSections, next.expandedSections);
+  };
+  const applySnapshot = (snapshot: EditorSnapshot) => {
+    restoreSnapshot(snapshot);
     isPreview.value = false;
     activeTool.value = 'select';
     resetRuntimeSelection();
+    resetHistory();
   };
 
   const loadConfig = () => {
@@ -192,6 +196,7 @@ export const useEditorStore = defineStore('editor', () => {
     if (!Array.isArray(config.series)) {
       config.series = createDefaultSeries() as any;
     }
+    resetHistory();
   };
 
   const saveConfig = () => {
@@ -436,7 +441,8 @@ export const useEditorStore = defineStore('editor', () => {
       for (const section of ['position', 'rotation', 'scale'] as const) {
         const current = object[section];
         const previous = (matchedSeries as any)[section];
-        if (current && ['x', 'y', 'z'].some(axis => previous?.[axis] !== current[axis])) {
+        const fallback = section === 'scale' ? 1 : 0;
+        if (current && ['x', 'y', 'z'].some(axis => (previous?.[axis] ?? fallback) !== current[axis])) {
           (matchedSeries as any)[section] = { x: current.x, y: current.y, z: current.z };
         }
       }
@@ -504,6 +510,90 @@ export const useEditorStore = defineStore('editor', () => {
     syncSelectedSceneObject(object);
   };
 
+  // Store document snapshots only at operation boundaries. Runtime meshes and
+  // binary assets stay outside history; a drag never copies the scene per frame.
+  type HistoryState = { document: string; selection: string[] };
+  const captureHistory = (): HistoryState => {
+    const snapshot = getSnapshot();
+    snapshot.expandedSections = initialSnapshot.expandedSections;
+    return { document: JSON.stringify(snapshot), selection: [...selectedIds.value] };
+  };
+  const past = shallowRef<HistoryState[]>([]);
+  const future = shallowRef<HistoryState[]>([]);
+  const canUndo = computed(() => past.value.length > 0);
+  const canRedo = computed(() => future.value.length > 0);
+  let historyCurrent = captureHistory();
+  let transactionDepth = 0;
+  let restoringHistory = false;
+  const resetHistory = () => {
+    transactionDepth = 0;
+    past.value = []; future.value = [];
+    historyCurrent = captureHistory();
+  };
+  const commitHistory = () => {
+    if (restoringHistory || transactionDepth) return;
+    const next = captureHistory();
+    if (next.document !== historyCurrent.document) {
+      past.value = [...past.value.slice(-99), historyCurrent];
+      future.value = [];
+    }
+    historyCurrent = next;
+  };
+  const beginHistoryTransaction = () => {
+    if (!transactionDepth) {
+      commitHistory();
+      historyCurrent.selection = [...selectedIds.value];
+    }
+    transactionDepth++;
+  };
+  const endHistoryTransaction = () => {
+    if (!transactionDepth) return;
+    transactionDepth--;
+    if (!transactionDepth) commitHistory();
+  };
+  const restoreHistory = (state: HistoryState) => {
+    restoringHistory = true;
+    try {
+      const snapshot = JSON.parse(state.document) as EditorSnapshot;
+      snapshot.expandedSections = { ...expandedSections };
+      restoreSnapshot(snapshot);
+      resetRuntimeSelection();
+      selectObjects(state.selection);
+      historyCurrent = captureHistory();
+    } finally { restoringHistory = false; }
+  };
+  const cancelHistoryTransaction = () => {
+    if (!transactionDepth) return;
+    transactionDepth = 0;
+    restoreHistory(historyCurrent);
+  };
+  const undo = () => {
+    transactionDepth = 0; commitHistory();
+    const previous = past.value[past.value.length - 1];
+    if (!previous) return;
+    past.value = past.value.slice(0, -1);
+    future.value = [...future.value, historyCurrent];
+    restoreHistory(previous);
+  };
+  const redo = () => {
+    transactionDepth = 0; commitHistory();
+    const next = future.value[future.value.length - 1];
+    if (!next) return;
+    future.value = future.value.slice(0, -1);
+    past.value = [...past.value, historyCurrent];
+    restoreHistory(next);
+  };
+  const historyAction = <Args extends unknown[], Result>(action: (...args: Args) => Result) => (...args: Args): Result => {
+    beginHistoryTransaction();
+    try { return action(...args); }
+    finally { endHistoryTransaction(); }
+  };
+  watch(selectedIds, ids => {
+    if (!transactionDepth && !restoringHistory) historyCurrent.selection = [...ids];
+  }, { flush: 'sync' });
+  watch([config, effectsEnabled, activeEffect, effectIntensity, ambientIntensity,
+    ambientEnabled, lightColor, lightAlpha, shadowType], commitHistory, { deep: true });
+
   // 监听并保存
   watch([config, effectsEnabled, activeEffect, effectIntensity, ambientIntensity, ambientEnabled, lightColor, lightAlpha, shadowType, expandedSections], () => {
     saveConfig();
@@ -524,6 +614,13 @@ export const useEditorStore = defineStore('editor', () => {
     shadowType,
     expandedSections,
     config,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    beginHistoryTransaction,
+    endHistoryTransaction,
+    cancelHistoryTransaction,
     getSnapshot,
     createBlankState,
     applySnapshot,
@@ -537,13 +634,13 @@ export const useEditorStore = defineStore('editor', () => {
     saveConfig,
     syncSelectedSceneObject,
     selectObjects,
-    addShape,
-    deleteSelectedObjects,
-    groupSelectedObjects,
-    ungroupSelectedObjects,
-    duplicateSelectedObjects,
-    renameSelectedSceneObject,
-    setSelectedSceneObjectVisible,
-    updateSelectedSceneObjectTransform,
+    addShape: historyAction(addShape),
+    deleteSelectedObjects: historyAction(deleteSelectedObjects),
+    groupSelectedObjects: historyAction(groupSelectedObjects),
+    ungroupSelectedObjects: historyAction(ungroupSelectedObjects),
+    duplicateSelectedObjects: historyAction(duplicateSelectedObjects),
+    renameSelectedSceneObject: historyAction(renameSelectedSceneObject),
+    setSelectedSceneObjectVisible: historyAction(setSelectedSceneObjectVisible),
+    updateSelectedSceneObjectTransform: historyAction(updateSelectedSceneObjectTransform),
   };
 });

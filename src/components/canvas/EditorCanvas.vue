@@ -2,9 +2,9 @@
   <div class="canvas-container">
     <div class="canvas-wrapper">
       <canvas id="_scene" :class="{ 'shape-drawing': editorStore.activeTool !== 'select' && !editorStore.isPreview }"
-        @pointerdown.capture="onShapePointerDown" @pointermove.capture="onShapePointerMove"
-        @pointerup.capture="onShapePointerUp" @pointercancel.capture="cancelShapeDrawing"
-        @mousedown.capture="onShapeMouseDown"
+        @pointerdown.capture="onCanvasPointerDown" @pointermove.capture="onCanvasPointerMove"
+        @pointerup.capture="onCanvasPointerUp" @pointercancel.capture="cancelInteraction"
+        @lostpointercapture="onLostPointerCapture" @mousedown.capture="onCanvasMouseDown"
         @click="onCanvasClick" @contextmenu.prevent="onCanvasContextMenu"></canvas>
       <div v-if="drawDraft" class="shape-draft" :style="draftStyle"></div>
       <div v-if="runtimeError" class="runtime-error" role="status">{{ runtimeError }}</div>
@@ -31,6 +31,7 @@ import { useEditorStore, type ShapeTool } from "../../store/EditorStore";
 import { useProjectStore } from "../../store/ProjectStore";
 import { createSceneRuntime, isVisibleInHierarchy, portableSeriesTypes } from "../../project/sceneRuntime";
 import { updateDesignHandleSizes } from './designHandles';
+import { createObjectDrag, hitsVisibleHandle } from './objectDrag';
 
 const props = defineProps<{
   config: any;
@@ -54,6 +55,19 @@ let cameraSignature = '';
 const primitiveObjects = new Set<THREE.Mesh>();
 const SUPPORTED_SERIES_TYPES = new Set(["map", "earth", "bar", "pie"]);
 let lastDebugSelectedKey = "__init__";
+type ObjectGesture = {
+  pointerId: number;
+  canvas: HTMLCanvasElement;
+  projectId: string;
+  design: any;
+  controlsEnabled: boolean;
+  drag: ReturnType<typeof createObjectDrag>;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
+let objectGesture: ObjectGesture | null = null;
+let suppressClick = false;
 type DrawPoint = { world: THREE.Vector3; screen: { x: number; y: number } };
 const drawDraft = ref<{ start: DrawPoint; end: DrawPoint } | null>(null);
 const draftStyle = computed(() => {
@@ -270,7 +284,7 @@ const excludeSceneHelpersFromPicking = () => {
   });
 };
 
-const pickEditorObject = (event: MouseEvent): THREE.Object3D | null => {
+const pickEditorHit = (event: MouseEvent): { object: THREE.Object3D; point: THREE.Vector3 } | null => {
   if (!instance?._camera) return null;
   const canvas = instance._canvas as HTMLCanvasElement;
   const rect = canvas.getBoundingClientRect();
@@ -288,10 +302,130 @@ const pickEditorObject = (event: MouseEvent): THREE.Object3D | null => {
     if (selected) {
       let root = selected;
       while (root.parent && root.parent !== instance.scene && root.userData.designRoot !== true) root = root.parent;
-      return findEditorObject(root);
+      const object = findEditorObject(root);
+      if (object) return { object, point: hit.point };
     }
   }
   return null;
+};
+const pickEditorObject = (event: MouseEvent) => pickEditorHit(event)?.object ?? null;
+
+const pointerFromEvent = (event: MouseEvent) => {
+  const rect = instance?._canvas.getBoundingClientRect();
+  if (!rect?.width || !rect.height) return null;
+  return new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1,
+    -(event.clientY - rect.top) / rect.height * 2 + 1);
+};
+
+const hitsDesignHandle = (event: PointerEvent) => {
+  const design = instance?.design;
+  const pointer = pointerFromEvent(event);
+  if (!design?.selectedObject || !pointer) return false;
+  const handles = [...design.gizmo.children, ...design.selectOverlay.cornerDots, ...design.selectOverlay.faceDots];
+  return hitsVisibleHandle(instance._camera, handles, pointer);
+};
+
+const syncDraggedPositions = (gesture: ObjectGesture) => {
+  if (gesture.projectId !== projectStore.projectId) return;
+  gesture.drag?.objects.forEach(object => {
+    const item = (props.config.series as any[]).find(item => String(item.id) === String(object.userData.seriesId));
+    if (item) item.position = { x: object.position.x, y: object.position.y, z: object.position.z };
+  });
+  const selected = findEditorObject(gesture.design.selectedObject);
+  if (selected) editorStore.syncSelectedSceneObject(selected);
+};
+
+const finishInteraction = (cancel = false) => {
+  const gesture = objectGesture;
+  if (!gesture) return;
+  objectGesture = null;
+  if (cancel) gesture.drag?.cancel();
+  if (gesture.projectId === projectStore.projectId) {
+    syncDraggedPositions(gesture);
+    if (cancel) editorStore.cancelHistoryTransaction();
+    else editorStore.endHistoryTransaction();
+  }
+  if (gesture.design.dragState) gesture.design.dragState = null;
+  gesture.design.controls.enabled = gesture.controlsEnabled;
+  gesture.canvas.style.cursor = gesture.design.selectedObject ? 'grab' : 'default';
+  suppressClick = !!gesture.drag || gesture.moved;
+  if (gesture.canvas.hasPointerCapture(gesture.pointerId)) gesture.canvas.releasePointerCapture(gesture.pointerId);
+};
+
+const onCanvasPointerDown = (event: PointerEvent) => {
+  if (!editorStore.isPreview && event.button === 0) {
+    const focused = document.activeElement as HTMLElement | null;
+    if (focused?.matches('input, textarea, select, [contenteditable="true"]')) focused.blur();
+  }
+  if (editorStore.activeTool !== 'select') { onShapePointerDown(event); return; }
+  if (!instance?.design || editorStore.isPreview || event.button !== 0 || objectGesture) return;
+  suppressClick = false;
+  // Let the existing transform handles receive their native mouse events.
+  const handle = hitsDesignHandle(event);
+  const hit = handle ? null : pickEditorHit(event);
+  if (!handle && !hit) return;
+  const design = instance.design;
+  let drag: ReturnType<typeof createObjectDrag> = null;
+  if (hit) {
+    const id = String(hit.object.userData.seriesId);
+    if (!editorStore.selectedIds.includes(id)) {
+      editorStore.selectObjects(event.shiftKey ? [...editorStore.selectedIds, id] : [id]);
+    }
+    design.select(hit.object);
+    editorStore.syncSelectedSceneObject(hit.object);
+    const pointer = pointerFromEvent(event);
+    if (!pointer) return;
+    const objects = editorStore.selectedIds.map(findSceneObjectForSelection).filter(Boolean) as THREE.Object3D[];
+    drag = createObjectDrag(instance._camera, objects, pointer, hit.point);
+    if (!drag) return;
+  }
+  editorStore.beginHistoryTransaction();
+  const canvas = event.currentTarget as HTMLCanvasElement;
+  objectGesture = { pointerId: event.pointerId, canvas, projectId: projectStore.projectId,
+    design, controlsEnabled: design.controls.enabled, drag,
+    startX: event.clientX, startY: event.clientY, moved: false };
+  if (drag) {
+    event.preventDefault(); event.stopImmediatePropagation();
+    design.controls.stop?.();
+    design.controls.enabled = false;
+    canvas.setPointerCapture(event.pointerId);
+    canvas.style.cursor = 'grabbing';
+  }
+};
+
+const onCanvasPointerMove = (event: PointerEvent) => {
+  if (drawDraft.value) { onShapePointerMove(event); return; }
+  const gesture = objectGesture;
+  if (!gesture?.drag || gesture.pointerId !== event.pointerId) return;
+  if (gesture.projectId !== projectStore.projectId) { finishInteraction(true); return; }
+  event.preventDefault(); event.stopImmediatePropagation();
+  if (!gesture.moved && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < 3) return;
+  gesture.moved = true;
+  const pointer = pointerFromEvent(event);
+  if (pointer) { gesture.drag.move(pointer); syncDraggedPositions(gesture); }
+};
+
+const onCanvasPointerUp = (event: PointerEvent) => {
+  if (drawDraft.value) { onShapePointerUp(event); return; }
+  if (objectGesture?.pointerId !== event.pointerId) return;
+  if (objectGesture.drag) onCanvasPointerMove(event);
+  finishInteraction();
+};
+const cancelInteraction = () => { cancelShapeDrawing(); finishInteraction(true); };
+const onLostPointerCapture = (event: PointerEvent) => {
+  if (objectGesture?.pointerId === event.pointerId) finishInteraction(true);
+};
+const blockNativeObjectMove = (event: MouseEvent) => {
+  if (objectGesture?.drag) event.stopImmediatePropagation();
+};
+const onInteractionKeyDown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && (objectGesture || drawDraft.value)) {
+    event.preventDefault(); cancelInteraction();
+  }
+};
+const onCanvasMouseDown = (event: MouseEvent) => {
+  if (objectGesture?.drag) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+  onShapeMouseDown(event);
 };
 
 const drawPointFromEvent = (event: PointerEvent): DrawPoint | null => {
@@ -358,6 +492,7 @@ const onShapePointerUp = (event: PointerEvent) => {
 const cancelShapeDrawing = () => { drawDraft.value = null; };
 
 const onCanvasClick = (event: MouseEvent) => {
+  if (suppressClick) { suppressClick = false; event.preventDefault(); return; }
   if (!instance?.design || editorStore.isPreview || editorStore.activeTool !== 'select') return;
   const current = findEditorObject(instance.design.selectedObject);
   const selected = current || pickEditorObject(event);
@@ -426,6 +561,7 @@ const focusObject = (id: string) => {
 };
 
 const disposeThree = () => {
+  finishInteraction(true);
   generation++;
   runtime?.dispose(); runtime = null;
   primitiveObjects.forEach(mesh => {
@@ -561,7 +697,7 @@ const initThree = () => {
   }
 };
 
-defineExpose({ resize: () => instance?.resize?.(), focusObject, captureCamera });
+defineExpose({ resize: () => instance?.resize?.(), focusObject, captureCamera, finishInteraction });
 
 let updateTimer: ReturnType<typeof setTimeout> | null = null;
 const structuralConfig = () => {
@@ -585,12 +721,24 @@ watch(() => (props.config.series ?? []).map((item: any) => ({ id: item.id, posit
 watch(() => props.selectedId, () => {
   syncDesignSelectionFromSidebar();
 });
+watch(() => projectStore.projectId, () => finishInteraction(true), { flush: 'sync' });
+watch(() => editorStore.isPreview, () => cancelInteraction(), { flush: 'sync' });
 
 onMounted(() => {
+  window.addEventListener('pointerup', onCanvasPointerUp);
+  window.addEventListener('pointercancel', cancelInteraction);
+  window.addEventListener('blur', cancelInteraction);
+  window.addEventListener('keydown', onInteractionKeyDown);
+  window.addEventListener('mousemove', blockNativeObjectMove, true);
   initThree();
 });
 
 onUnmounted(() => {
+  window.removeEventListener('pointerup', onCanvasPointerUp);
+  window.removeEventListener('pointercancel', cancelInteraction);
+  window.removeEventListener('blur', cancelInteraction);
+  window.removeEventListener('keydown', onInteractionKeyDown);
+  window.removeEventListener('mousemove', blockNativeObjectMove, true);
   drawDraft.value = null;
   if (updateTimer) clearTimeout(updateTimer);
   editorStore.syncSelectedSceneObject(null);

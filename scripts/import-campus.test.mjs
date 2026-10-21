@@ -26,7 +26,8 @@ test('bundled campus is self contained and preserves every original resource', a
     readFile(new URL('campus.threeauto', campus)), readFile(new URL('project.json', campus)), readFile(new URL('campus-report.json', campus)),
   ]);
   const entries = unzipSync(archive), manifest = JSON.parse(manifestBytes), report = JSON.parse(reportBytes);
-  assert.equal(Buffer.compare(Buffer.from(entries['project.json']), manifestBytes), 0);
+  // Git may check out JSON with CRLF on Windows; compare the document content.
+  assert.deepEqual(JSON.parse(Buffer.from(entries['project.json']).toString('utf8')), manifest);
   assert.equal(manifest.format, 'three-auto-creator'); assert.equal(manifest.version, 1);
   assert.equal(archive.byteLength, report.archiveBytes);
   assert.equal(report.resourceCount, 13);

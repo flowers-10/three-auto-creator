@@ -1,5 +1,6 @@
 <template>
-  <div class="three-editor" :class="{ 'preview-mode': isPreview }">
+  <div class="three-editor" :class="{ 'preview-mode': isPreview }"
+    @pointerdown.capture="beginPropertyGesture" @focusin="beginFieldEdit" @focusout="endFieldEdit">
     <!-- 画布组件 - 独立于 UI 布局 -->
     <EditorCanvas 
       v-if="projectStore.ready"
@@ -90,6 +91,7 @@ import LeftSidebar from "./LeftSidebar.vue";
 import RightSidebar from "./RightSidebar.vue";
 import EditorCanvas from "../canvas/EditorCanvas.vue";
 import InputDialog from "../ui/InputDialog.vue";
+import { historyShortcut } from './historyShortcuts';
 
 const editorStore = useEditorStore();
 const assetStore = useAssetStore();
@@ -115,6 +117,32 @@ const renameInitialValue = ref('');
 const selectedItems = computed(() => (config.value.series as any[]).filter(item => selectedIds.value.includes(String(item.id))));
 const hasSelectedGroup = computed(() => selectedItems.value.some(item => item.type === 'group'));
 const allSelectedVisible = computed(() => selectedItems.value.every(item => item.show !== false));
+let propertyGestureProject: string | null = null;
+let fieldEditProject: string | null = null;
+const endFieldEdit = () => {
+  if (fieldEditProject === projectStore.projectId) editorStore.endHistoryTransaction();
+  fieldEditProject = null;
+};
+const endPropertyGesture = () => {
+  if (propertyGestureProject === projectStore.projectId) editorStore.endHistoryTransaction();
+  propertyGestureProject = null;
+};
+const beginPropertyGesture = (event: PointerEvent) => {
+  const target = event.target as HTMLElement;
+  if (isPreview.value || event.button !== 0 || target.closest('canvas')) return;
+  if (fieldEditProject !== null && target !== document.activeElement) endFieldEdit();
+  endPropertyGesture();
+  editorStore.beginHistoryTransaction();
+  propertyGestureProject = projectStore.projectId;
+};
+const beginFieldEdit = (event: FocusEvent) => {
+  const target = event.target as HTMLElement;
+  if (isPreview.value || (!target.isContentEditable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+  endFieldEdit();
+  editorStore.beginHistoryTransaction();
+  fieldEditProject = projectStore.projectId;
+};
+const finishPropertyEdits = () => { endFieldEdit(); endPropertyGesture(); };
 
 // 计算属性
 const sceneObjects = computed(() => {
@@ -197,6 +225,14 @@ const onKeyDown = (event: KeyboardEvent) => {
   const target = event.target as HTMLElement | null;
   if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
   if (event.key === 'Escape') { contextMenu.value.open = false; return; }
+  const historyAction = historyShortcut(event);
+  if (historyAction) {
+    event.preventDefault();
+    canvasRef.value?.finishInteraction();
+    finishPropertyEdits();
+    editorStore[historyAction]();
+    return;
+  }
   if (!selectedIds.value.length) return;
   if (event.key === 'Delete' || event.key === 'Backspace') {
     event.preventDefault(); runAction('delete');
@@ -216,10 +252,17 @@ onMounted(() => {
   void projectStore.initialize();
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointerup', endPropertyGesture);
+  window.addEventListener('pointercancel', endPropertyGesture);
+  window.addEventListener('blur', finishPropertyEdits);
 });
 onUnmounted(() => {
+  finishPropertyEdits();
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('pointerdown', onPointerDown);
+  window.removeEventListener('pointerup', endPropertyGesture);
+  window.removeEventListener('pointercancel', endPropertyGesture);
+  window.removeEventListener('blur', finishPropertyEdits);
 });
 </script>
 

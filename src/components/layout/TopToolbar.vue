@@ -12,6 +12,8 @@
       <button class="tool-btn quick-btn" type="button" title="Input (待实现)" aria-label="Input" @click="showPending('Input')"><UiIcon name="input" /></button>
       <div class="divider"></div>
       <button class="tool-btn quick-btn" :class="{ active: editorStore.activeTool === 'select' }" type="button" title="Select (V)" aria-label="Select" @click="activateSelect"><UiIcon name="select" /></button>
+      <button class="tool-btn quick-btn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销" :disabled="!editorStore.canUndo" @click="editorStore.undo"><UiIcon name="undo" /></button>
+      <button class="tool-btn quick-btn" type="button" title="重做 (Ctrl+Y)" aria-label="重做" :disabled="!editorStore.canRedo" @click="editorStore.redo"><UiIcon name="redo" /></button>
       <button class="tool-btn quick-btn" type="button" title="Preview" aria-label="Preview" @click="togglePreview"><UiIcon name="preview" /></button>
       <div class="divider"></div>
       <ProjectMenu />
@@ -261,6 +263,7 @@ onUnmounted(() => {
 .toolbar-content { display: flex; align-items: center; gap: 5px; }
 .tool-btn { display: grid; place-items: center; flex: none; padding: 0; border: 0; background: transparent; color: #333; cursor: pointer; }
 .tool-btn:hover, .add-btn { background: #f1f1f1; }
+.tool-btn:disabled { opacity: .3; cursor: default; background: transparent; }
 .tool-btn.active { background: #dedede; color: #1e1e1e; }
 .tool-btn:focus { outline: none; }
 .tool-btn:focus-visible { outline: 2px solid #638cf4; outline-offset: 2px; }

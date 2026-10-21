@@ -10,6 +10,8 @@ defineProps<{ name: string }>();
 const paths: Record<string, string[]> = {
   plus: ['M12 5v14', 'M5 12h14'],
   check: ['m4 12 5 5L20 6'],
+  undo: ['M9 5 4 10l5 5', 'M4 10h9a6 6 0 0 1 6 6v3'],
+  redo: ['m15 5 5 5-5 5', 'M20 10h-9a6 6 0 0 0-6 6v3'],
   square: ['M5 5h14v14H5z'],
   cube: ['m12 2 9 5v10l-9 5-9-5V7z', 'm3 7 9 5 9-5', 'M12 12v10'],
   text: ['M4 6V4h16v2', 'M12 4v16', 'M8 20h8'],
