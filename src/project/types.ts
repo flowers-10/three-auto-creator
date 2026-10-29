@@ -25,7 +25,8 @@ export type ProjectData = { document: ProjectDocument; files: Map<string, Uint8A
 
 // Portable series extensions; rotations use radians.
 // model: src, optional detailSrc/assetMatrix/detailAssetMatrix/fitSize, position/rotation/scale.
-// ground: texture, width/depth; image orientation matches the campus ground.
+// ground: texture, width/depth; optional surfaceDetail: {version,src,strength} adds
+// metre-scale grass, asphalt and paving detail. Ground textures use flipped UVs.
 // instances: src, instanceMatrices: number[][], optional instanceColors: string[].
 // config.environment: { src, background?: boolean, intensity?: number, backgroundScale?: number }.
 // backgroundScale defaults to 2 (smaller, distant clouds); 1 preserves the panorama. Whole-number repeats only.

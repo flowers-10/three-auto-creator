@@ -25,3 +25,8 @@ dist-ssr
 
 # Standalone viewer is regenerated before dev/build.
 public/export-runtime.js
+
+# Local scratch files and scene resources do not belong to the editor.
+tmp/
+public/projects/
+public/textures/

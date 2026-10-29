@@ -1,55 +1,46 @@
-# ThreeAuto Creator 🚀
+# ThreeAuto Creator
 
-一个基于 **[ThreeAuto](https://github.com/flowers-10/three-auto)** 核心库构建的现代化“无代码” 3D 场景编辑器。
+基于 Vue 3、Pinia、Three.js 和 [ThreeAuto](https://github.com/flowers-10/three-auto) 的轻量级 3D 场景编辑器。
 
-## 🌟 项目简介
+## 开发
 
-ThreeAuto Creator 旨在提供一个直观、高效的图形化界面，让开发者和设计师无需编写复杂代码即可构建、配置和预览 Three.js 场景。本项目深度集成了 `three-auto` 库，充分发挥其自动化配置和高性能渲染的优势。
+需要 Node.js 20+，统一使用 npm 管理依赖。
 
-### 核心库关联
-本项目由 **[ThreeAuto](https://github.com/flowers-10/three-auto)** 提供动力支持：
-- 📖 **核心库文档**: [ThreeAuto Documentation](https://flowers-10.github.io/three-auto/)
-- 🔗 **核心库源码**: [flowers-10/three-auto](https://github.com/flowers-10/three-auto)
-
-## ✨ 功能特性
-
-- **可视化编辑**: 支持场景参数（阴影、相机、雾气、后处理）的实时双向绑定调节。
-- **现代化 UI 库**: 包含自定义封装的 `Slider`、`Switch`、`Select`、`ColorPicker` 等高颜值 UI 组件。
-- **资源管理**: 支持 `Material`、`Color`、`Image`、`Media` 等资源的本地化存储与复用。
-- **交互式拾色器**: 支持 Hex 值与透明度（Alpha）的直接编辑及预览。
-- **持久化存储**: 自动将编辑器状态保存至 `localStorage`，确保工作进度永不丢失。
-- **响应式布局**: 适配多种屏幕尺寸，提供专业的侧边栏属性面板。
-
-## 🛠️ 技术栈
-
-- **框架**: Vue 3 (Composition API)
-- **状态管理**: Pinia
-- **3D 引擎**: [ThreeAuto](https://github.com/flowers-10/three-auto) (基于 Three.js)
-- **构建工具**: Vite
-- **脚本**: TypeScript
-
-## 🚀 快速开始
-
-### 安装依赖
 ```bash
-npm install
-# 或
-yarn install
-```
-
-### 本地开发
-```bash
+npm ci
 npm run dev
-```
-
-### 构建项目
-```bash
+npm test
 npm run build
+npm run preview
 ```
 
-## 📄 开源协议
+开发和预览端口为 `2025`。`dev` / `build` 会先生成独立网页导出所需的 `public/export-runtime.js`。
 
-本项目遵循 MIT 协议。
+## 编辑项目
 
-***
-*Created with ❤️ by [Trae IDE](https://www.trae.ai/)*
+- 新建、切换本机项目；项目文档和导入的二进制资源保存到浏览器 IndexedDB。
+- 通过「项目 → 打开项目包」导入 `.threeauto` / `.zip`，或导入贴图已内嵌的 GLB。
+- 编辑场景、模型、地面、材质和后期效果；支持选择、变换、分组、撤销和重做。
+- 导出可编辑项目包、含资源的独立网页 ZIP，或仅场景 JSON。
+
+## 资源边界
+
+编辑器仓库只保存通用代码。模型、贴图、HDR、Blender 源文件、示例项目和临时预览放在独立资源目录或外部存储中，**不要放进 `src/` 或 `public/`**。
+
+构建已关闭 Vite 对 `public/` 的整目录复制，只允许输出 `three-auto.ico` 和生成的 `export-runtime.js`。场景资源通过用户导入进入浏览器项目库；构建测试会验证意外放入 `public/` 的模型、贴图和项目包不会进入 `dist/`。
+
+本机原有园区资源与生成工具已迁至同级目录 `../three-auto-creator-resources/`，工具依赖独立安装。当前项目包在该目录下的 `projects/campus-satellite-rebuilt/campus.threeauto`，可使用「打开项目包」导入。浏览器中已有的本机项目仍可继续打开。
+
+用户主动导出的 `.threeauto` 和网页 ZIP 会包含该场景的资源，以便迁移和离线使用；这些导出文件与编辑器自身的发布包分开。
+
+## 目录
+
+```text
+src/components/  编辑器界面和画布交互
+src/store/       编辑器、资源与项目状态
+src/project/     项目格式、本机存储和通用渲染运行时
+src/utils/       材质等辅助逻辑
+scripts/         编辑器构建和测试工具
+tests/           通用编辑器测试
+public/          图标和生成的网页导出脚本
+```

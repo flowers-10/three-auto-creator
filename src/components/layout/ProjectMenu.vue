@@ -7,7 +7,6 @@
       <template v-if="menu === 'project'">
         <button type="button" role="menuitem" @click="newProject">新建项目…</button>
         <button type="button" role="menuitem" @click="chooseProject">打开项目包… <small>.threeauto / .zip</small></button>
-        <button type="button" role="menuitem" @click="importCampus">导入当前园区 <small>完整资源 · 约 82 MB</small></button>
         <button type="button" role="menuitem" @click="chooseModel">导入 GLB 模型…</button>
         <div class="menu-section">本机项目 <small>自动保存</small></div>
         <button v-for="project in store.projects" :key="project.id" type="button" role="menuitemradio"
@@ -50,7 +49,6 @@ const newProject = () => { menu.value = ''; nameDialog.value = true; };
 const confirmNewProject = (name: string) => { nameDialog.value = false; void store.createProject(name); };
 const chooseProject = () => { menu.value = ''; projectInput.value?.click(); };
 const chooseModel = () => { menu.value = ''; modelInput.value?.click(); };
-const importCampus = () => { menu.value = ''; void store.importCampus(); };
 const openRecent = (id: string) => { menu.value = ''; void store.switchProject(id); };
 const exportEditable = () => { menu.value = ''; void store.exportProject(); };
 const exportWeb = () => { menu.value = ''; void store.exportWeb(); };

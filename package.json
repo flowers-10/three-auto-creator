@@ -8,22 +8,23 @@
     "dev": "vite",
     "prebuild": "node scripts/build-viewer.mjs",
     "build": "vue-tsc -b && vite build",
-    "test": "node scripts/test-project.mjs && node --test scripts/import-campus.test.mjs",
+    "test": "node scripts/test-project.mjs && node --test scripts/build.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
     "pinia": "^3.0.4",
     "three": "^0.185.1",
     "three-auto": "^0.3.5",
-    "vite-plugin-glsl": "^1.3.1",
     "vue": "^3.5.13"
   },
   "devDependencies": {
     "@types/node": "^20.12.11",
     "@types/three": "^0.185.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "esbuild": "^0.25.12",
     "typescript": "~5.6.2",
     "vite": "^6.4.5",
     "vue-tsc": "^2.1.10"
-  }
+  },
+  "engines": { "node": ">=20" }
 }

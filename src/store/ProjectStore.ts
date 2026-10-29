@@ -129,11 +129,6 @@ export const useProjectStore = defineStore('projects', () => {
     if (file.size > 512 * 1024 * 1024) throw new Error('项目包超过 512 MB。');
     await openBytes(new Uint8Array(await file.arrayBuffer()));
   });
-  const importCampus = () => run('正在导入园区（约 82 MB）…', async () => {
-    const response = await fetch(`${import.meta.env.BASE_URL}projects/campus/campus.threeauto`);
-    if (!response.ok) throw new Error('园区项目包加载失败。');
-    await openBytes(new Uint8Array(await response.arrayBuffer()));
-  });
   const resolveAsset = (path: string) => {
     if (!path.startsWith('assets/')) return path;
     const bytes = files.value.get(path);
@@ -181,6 +176,6 @@ export const useProjectStore = defineStore('projects', () => {
     saveTimer = setTimeout(() => { flush().catch(cause => { error.value = String(cause); }); }, 600);
   }, { deep: true });
   return { ready, busy, error, status, projectId, filesRevision, projectName, projects,
-    initialize, createProject, switchProject, importProject, importCampus, importModel,
+    initialize, createProject, switchProject, importProject, importModel,
     exportProject, exportWeb, exportJson, resolveAsset, flush, refreshProjects };
 });

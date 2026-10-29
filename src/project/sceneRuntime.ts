@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { createSkyBackground } from './skyBackground';
+import { addGroundSurfaceDetail } from './groundSurface';
 
 type RuntimeOptions = {
   scene: THREE.Scene;
@@ -193,19 +194,26 @@ export function createSceneRuntime({ scene, camera, renderer, config, resolveAss
   };
   const loadGround = async (entry: Entry) => {
     const item = entry.item;
-    const texture = item.texture ? await loadTexture(item.texture) : null;
+    const [texture, surfaceAtlas] = await Promise.all([
+      item.texture ? loadTexture(item.texture) : Promise.resolve(null),
+      item.surfaceDetail?.src ? loadTexture(item.surfaceDetail.src) : Promise.resolve(null),
+    ]);
     if (!isLive(entry)) return;
     if (texture) {
       texture.colorSpace = THREE.SRGBColorSpace;
-      // The campus aerial image is authored from the opposite image corner on both axes.
+      // Ground textures start from the opposite image corner on both axes.
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.repeat.set(-1, -1);
       texture.offset.set(1, 1);
-      texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true;
     }
     const geometry = new THREE.PlaneGeometry(item.width ?? 420, item.depth ?? 460);
     geometry.rotateX(-Math.PI / 2);
     const material = new THREE.MeshStandardMaterial({ map: texture, color: item.color ?? '#ffffff', roughness: 1, metalness: 0, alphaTest: item.alphaTest ?? 0.65, side: THREE.DoubleSide });
+    if (texture && surfaceAtlas) addGroundSurfaceDetail(material, texture, surfaceAtlas, item.surfaceDetail, renderer);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = true;
     geometries.add(geometry); rememberMaterial(material);

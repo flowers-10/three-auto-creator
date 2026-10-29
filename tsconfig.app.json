@@ -20,11 +20,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-    "paths": {
-      "@/*": ["./src/*"],
-      "@assets/*": ["./src/assets/*"]
-    }
+    "noUncheckedSideEffectImports": true
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts","src/**/*.tsx", "src/**/*.vue"]
 }
