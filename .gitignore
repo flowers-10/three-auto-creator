@@ -30,3 +30,20 @@ public/export-runtime.js
 tmp/
 public/projects/
 public/textures/
+
+# Tests and verification artifacts stay local; never force-add them.
+tests/
+test/
+__tests__/
+*.test.*
+*.spec.*
+/scripts/test-project.mjs
+fixtures/
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Local tool memory and workflow scratch files.
+.workbuddy/
+.superpowers/
